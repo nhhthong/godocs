@@ -67,7 +67,7 @@ sequenceDiagram
         S-->>H: ErrInvalidInput
         H-->>Client: 400 invalid_input
     end
-    alt len(password) < 8
+    alt password < 8 chars or > 72 bytes
         S-->>H: ErrWeakPassword
         H-->>Client: 422 weak_password
     end
@@ -98,9 +98,10 @@ sequenceDiagram
 2. **Decode JSON.** `httpx.DecodeJSON` reads at most 1 MB and rejects unknown
    fields (`DisallowUnknownFields`), so a typo in a field name fails loudly.
 3. **Validate.** Email is lower-cased and trimmed, then must be non-empty and
-   contain `@`. Password must be at least 8 characters — that's the only rule the
-   server enforces. (The sign-up form shows a strength meter, but it's advice, not
-   a gate.)
+   contain `@`. Password must be 8–72: at least 8 characters, at most 72 *bytes*
+   (bcrypt ignores anything past 72 bytes, so the server rejects it up front
+   instead of returning a confusing `500`). Those are the only password rules the
+   server enforces — the sign-up form's strength meter is advice, not a gate.
 4. **No pre-check for duplicates.** The code goes straight to `INSERT` and lets
    the `UNIQUE` constraint on `users.email` do the work. `db.AuthRepo` recognises
    the SQLite constraint error (via `errors.As` on `*sqlite.Error`, with a string
@@ -123,5 +124,5 @@ sequenceDiagram
 | Body is not valid JSON | `400` | `invalid_json` |
 | Email empty or missing `@` | `400` | `invalid_input` |
 | Email already registered | `409` | `email_taken` |
-| Password shorter than 8 characters | `422` | `weak_password` |
+| Password under 8 chars or over 72 bytes | `422` | `weak_password` |
 | Database failure | `500` | `internal_error` |

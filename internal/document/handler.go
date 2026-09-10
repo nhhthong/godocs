@@ -65,18 +65,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Authenticated user context resolved from upstream auth.RequireAuth middleware.
-	var createdBy string
-	if u, ok := auth.UserFrom(r.Context()); ok {
-		createdBy = u.ID
-	}
-
 	doc, err := h.svc.Create(r.Context(), CreateInput{
 		Title:     r.FormValue("title"),
 		Summary:   r.FormValue("summary"),
 		FileName:  hdr.Filename,
 		File:      file,
-		CreatedBy: createdBy,
+		CreatedBy: ownerID(r), // set by auth.RequireAuth upstream
 	})
 	if err != nil {
 		writeErr(w, err)

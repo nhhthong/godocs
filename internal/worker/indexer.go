@@ -87,7 +87,13 @@ func (ix *Indexer) loop(workerID int) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		if err := ix.process(ctx, id); err != nil {
 			ix.log.Error("index failed", "worker", workerID, "doc", id, "err", err)
-			_ = ix.svc.MarkStatus(ctx, id, document.StatusFailed)
+			// process() often fails because ctx itself timed out; reusing it for the
+			// status write would fail too and leave the doc stuck in "pending".
+			fctx, fcancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if merr := ix.svc.MarkStatus(fctx, id, document.StatusFailed); merr != nil {
+				ix.log.Error("mark failed status", "worker", workerID, "doc", id, "err", merr)
+			}
+			fcancel()
 		}
 		cancel() // Release context resources immediately; avoid defer within an unbounded loop
 	}

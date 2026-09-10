@@ -77,7 +77,9 @@ sequenceDiagram
 ## 3. Step by step
 
 1. **`RequireAuth` reads the cookie.** No cookie → `401` right away.
-2. **Find the session** by `sha256(token)`. No row → `401`.
+2. **Find the session** by `sha256(token)`. No row → `401` and the cookie is
+   cleared. A *database* error here is different: `RequireAuth` returns `500` and
+   leaves the cookie alone, so a brief outage doesn't sign everyone out.
 3. **Check expiry.** If `expires_at` is in the past, delete the stale row, clear
    the client's cookie, and return `401`.
 4. **Load the user** with `FindUserByID`. (If the user was deleted but a session

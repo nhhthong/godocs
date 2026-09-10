@@ -77,7 +77,10 @@ func (r *DocumentRepo) List(ctx context.Context, f document.ListFilter) ([]docum
 		return nil, 0, fmt.Errorf("repo: count: %w", err)
 	}
 
-	q := `SELECT ` + cols + ` FROM documents` + where + ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	// id DESC is a stable tie-breaker: created_at has 1-second resolution, so several
+	// documents can share a value; without a unique second key, OFFSET paging is not
+	// reproducible across requests (rows duplicated on one page, missing from another).
+	q := `SELECT ` + cols + ` FROM documents` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
 	rows, err := r.db.QueryContext(ctx, q, append(args, f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("repo: list: %w", err)

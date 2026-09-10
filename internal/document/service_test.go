@@ -3,8 +3,10 @@ package document
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -42,7 +44,7 @@ func (f *fakeRepo) GetByID(_ context.Context, id string) (*Document, error) {
 func (f *fakeRepo) List(_ context.Context, flt ListFilter) ([]Document, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []Document
+	var all []Document
 	for _, d := range f.data {
 		if flt.Owner != "" && d.CreatedBy != flt.Owner {
 			continue
@@ -50,9 +52,18 @@ func (f *fakeRepo) List(_ context.Context, flt ListFilter) ([]Document, int, err
 		if flt.Status != "" && d.Status != flt.Status {
 			continue
 		}
-		out = append(out, *d)
+		all = append(all, *d)
 	}
-	return out, len(out), nil
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID }) // stable order for Offset paging
+	total := len(all)
+	if flt.Offset >= total {
+		return nil, total, nil
+	}
+	all = all[flt.Offset:]
+	if flt.Limit > 0 && flt.Limit < len(all) {
+		all = all[:flt.Limit]
+	}
+	return all, total, nil
 }
 
 func (f *fakeRepo) Update(_ context.Context, d *Document) error {
@@ -255,4 +266,41 @@ func TestRequeuePending(t *testing.T) {
 			t.Fatalf("unexpected enqueued id %q", id)
 		}
 	}
+}
+
+// TestRequeuePendingPagesPastFirstBatch verifies the whole backlog is requeued,
+// not just the first 500 rows.
+func TestRequeuePendingPagesPastFirstBatch(t *testing.T) {
+	svc, repo, _ := newTestService()
+	idx := svc.indexer.(*fakeIndexer)
+
+	const n = 1200
+	want := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("p%04d", i)
+		repo.data[id] = &Document{ID: id, Status: StatusPending}
+		want[id] = true
+	}
+
+	svc.RequeuePending(context.Background())
+
+	if len(idx.ids) != n {
+		t.Fatalf("enqueued %d, want %d", len(idx.ids), n)
+	}
+	for _, id := range idx.ids {
+		if !want[id] {
+			t.Fatalf("unexpected id %q", id)
+		}
+		delete(want, id)
+	}
+	if len(want) != 0 {
+		t.Fatalf("%d pending docs were never requeued, e.g. %v", len(want), firstKey(want))
+	}
+}
+
+func firstKey(m map[string]bool) string {
+	for k := range m {
+		return k
+	}
+	return ""
 }

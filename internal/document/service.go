@@ -75,12 +75,12 @@ type Service struct {
 	indexer Indexer
 	log     *slog.Logger
 
-	maxSize   int64
-	allowMime map[string]bool
+	maxSize int64
 }
 
 // extByMime maps every accepted (sniffed) MIME type to the extension used for the
-// stored file. Its keys are the single source of truth for what uploads are allowed.
+// stored file. It is the single source of truth for which uploads are allowed:
+// a type absent from this map is rejected.
 var extByMime = map[string]string{
 	"application/pdf": ".pdf",
 	"image/png":       ".png",
@@ -90,14 +90,9 @@ var extByMime = map[string]string{
 
 // NewService instantiates a document Service with default allowed MIME types and upload size limits.
 func NewService(repo Repository, blob BlobStore, c Cache, idx Indexer, log *slog.Logger, maxSize int64) *Service {
-	allow := make(map[string]bool, len(extByMime))
-	for m := range extByMime {
-		allow[m] = true
-	}
 	return &Service{
 		repo: repo, blob: blob, cache: c, indexer: idx, log: log,
-		maxSize:   maxSize,
-		allowMime: allow,
+		maxSize: maxSize,
 	}
 }
 
@@ -132,7 +127,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Document, error)
 	if i := strings.IndexByte(mimeType, ';'); i >= 0 { // Strip parameters (e.g. "text/plain; charset=utf-8")
 		mimeType = strings.TrimSpace(mimeType[:i])
 	}
-	if !s.allowMime[mimeType] {
+	ext, ok := extByMime[mimeType]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrMimeType, mimeType)
 	}
 
@@ -147,7 +143,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Document, error)
 
 	// Extension comes from the sniffed MIME type, never the client filename, so an
 	// upload cannot place an arbitrary extension (".php", ".html", ...) on disk.
-	saved, err := s.blob.Save(ctx, extByMime[mimeType], body)
+	saved, err := s.blob.Save(ctx, ext, body)
 	if err != nil {
 		return nil, fmt.Errorf("save blob: %w", err)
 	}
@@ -284,19 +280,30 @@ func (s *Service) MarkStatus(ctx context.Context, id string, st Status) error {
 // RequeuePending re-enqueues every document still in StatusPending. Call it on
 // startup so uploads whose indexing was dropped (queue full, or a crash before
 // processing) are not stranded. Best-effort: enqueue failures are only logged.
+//
+// It pages through the whole backlog rather than the first N rows — a burst that
+// overflowed the queue can leave far more than one page of pending documents, and
+// the oldest ones must be recovered too.
 func (s *Service) RequeuePending(ctx context.Context) {
 	const batch = 500
-	docs, _, err := s.repo.List(ctx, ListFilter{Status: StatusPending, Limit: batch})
-	if err != nil {
-		s.log.Error("requeue pending: list failed", "err", err)
-		return
-	}
-	for i := range docs {
-		if !s.indexer.Enqueue(docs[i].ID) {
-			s.log.Warn("requeue pending: queue full", "id", docs[i].ID)
+	total := 0
+	for offset := 0; ; offset += batch {
+		docs, _, err := s.repo.List(ctx, ListFilter{Status: StatusPending, Limit: batch, Offset: offset})
+		if err != nil {
+			s.log.Error("requeue pending: list failed", "err", err)
+			return
+		}
+		for i := range docs {
+			if !s.indexer.Enqueue(docs[i].ID) {
+				s.log.Warn("requeue pending: queue full", "id", docs[i].ID)
+			}
+		}
+		total += len(docs)
+		if len(docs) < batch {
+			break // last page
 		}
 	}
-	if len(docs) > 0 {
-		s.log.Info("requeued pending documents", "count", len(docs))
+	if total > 0 {
+		s.log.Info("requeued pending documents", "count", total)
 	}
 }

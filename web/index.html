@@ -148,7 +148,7 @@
               <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
                 <i data-lucide="lock" class="h-4 w-4"></i>
               </span>
-              <input name="password" id="authPassword" type="password" required placeholder="••••••••" minlength="8" class="block w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-slate-400 dark:focus:ring-white/10">
+              <input name="password" id="authPassword" type="password" required placeholder="••••••••" minlength="8" maxlength="72" class="block w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-slate-400 dark:focus:ring-white/10">
               <button type="button" id="togglePasswordBtn" class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
                 <i data-lucide="eye" id="eyeIcon" class="h-4 w-4"></i>
                 <i data-lucide="eye-off" id="eyeOffIcon" class="hidden h-4 w-4"></i>
@@ -804,11 +804,15 @@
       const password = (formData.get('password') || '').toString();
 
       // Additional validation on Registration.
-      // The server only enforces a minimum length of 8; the strength checklist above is
-      // advisory guidance, not a hard gate, so keep this in sync with the backend.
+      // The server enforces 8 to 72 bytes (bcrypt's limit); the strength checklist
+      // above is advisory guidance, not a hard gate. Keep this in sync with the backend.
       if (authMode === 'register') {
-        if (password.length < 8) {
-          authAlertMsg.textContent = 'Password must be at least 8 characters.';
+        // Byte length, since the server measures bytes and multi-byte chars count for more.
+        const passwordBytes = new TextEncoder().encode(password).length;
+        if (password.length < 8 || passwordBytes > 72) {
+          authAlertMsg.textContent = passwordBytes > 72
+            ? 'Password must be at most 72 bytes.'
+            : 'Password must be at least 8 characters.';
           authAlert.classList.remove('hidden');
           authPasswordInput.focus();
           return;

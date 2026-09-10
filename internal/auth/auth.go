@@ -18,7 +18,7 @@ import (
 // Callers must inspect errors using errors.Is rather than string matching.
 var (
 	ErrInvalidInput   = errors.New("auth: invalid input")
-	ErrWeakPassword   = errors.New("auth: password must be at least 8 characters")
+	ErrWeakPassword   = errors.New("auth: password must be 8 to 72 bytes")
 	ErrEmailTaken     = errors.New("auth: email already registered")
 	ErrBadCredentials = errors.New("auth: invalid email or password")
 	ErrNoSession      = errors.New("auth: unauthorized or session expired")

@@ -3,6 +3,9 @@ package auth
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -10,10 +13,11 @@ import (
 // --- In-Memory Repository Fake: validates service logic without requiring a physical database ---
 
 type memRepo struct {
-	users    map[string]*User  // id -> user
-	byEmail  map[string]string // email -> id
-	hashes   map[string]string // id -> password_hash
-	sessions map[string]*Session
+	users      map[string]*User  // id -> user
+	byEmail    map[string]string // email -> id
+	hashes     map[string]string // id -> password_hash
+	sessions   map[string]*Session
+	sessionErr error // when set, FindSession returns it (simulates a DB failure)
 }
 
 func newMemRepo() *memRepo {
@@ -61,6 +65,9 @@ func (m *memRepo) CreateSession(_ context.Context, s *Session) error {
 }
 
 func (m *memRepo) FindSession(_ context.Context, token string) (*Session, error) {
+	if m.sessionErr != nil {
+		return nil, m.sessionErr
+	}
 	s, ok := m.sessions[token]
 	if !ok {
 		return nil, ErrNoSession
@@ -148,5 +155,50 @@ func TestAuthExpiredSession(t *testing.T) {
 	}
 	if _, err := svc.Authenticate(ctx, sess.Token); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("expired session: expected ErrNoSession, got %v", err)
+	}
+}
+
+func TestRegisterPasswordTooLong(t *testing.T) {
+	svc := NewService(newMemRepo(), time.Hour)
+	long := strings.Repeat("a", 73) // one byte past bcrypt's 72-byte limit
+	if _, err := svc.Register(context.Background(), "d@example.com", long); !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("73-byte password: expected ErrWeakPassword, got %v", err)
+	}
+}
+
+// TestRequireAuthDBError checks that a transient repo failure yields 500 and keeps
+// the session cookie, while a genuinely unknown session yields 401 and clears it.
+func TestRequireAuthDBError(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo, time.Hour)
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	h := svc.RequireAuth(next)
+
+	call := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: "whatever"})
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Unknown session: 401 + cookie cleared.
+	rec := call()
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unknown session: got %d, want 401", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=0") &&
+		!strings.Contains(rec.Header().Get("Set-Cookie"), cookieName+"=;") {
+		t.Fatalf("unknown session: cookie not cleared: %q", rec.Header().Get("Set-Cookie"))
+	}
+
+	// Transient DB failure: 500 + cookie untouched.
+	repo.sessionErr = errors.New("db is down")
+	rec = call()
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("db error: got %d, want 500", rec.Code)
+	}
+	if rec.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("db error: cookie should be untouched, got %q", rec.Header().Get("Set-Cookie"))
 	}
 }

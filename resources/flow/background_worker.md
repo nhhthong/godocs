@@ -57,7 +57,7 @@ sequenceDiagram
         alt ok
             W->>DB: SetStatus(ctx, id, "ready")
         else error or timeout
-            W->>DB: SetStatus(ctx, id, "failed")
+            W->>DB: SetStatus(freshCtx 5s, id, "failed")
         end
         W->>W: cancel()
     end
@@ -66,6 +66,10 @@ sequenceDiagram
 `SetStatus` runs a single `UPDATE documents SET status=?, updated_at=? WHERE
 id=?` — no read-modify-write — so it can't clobber a `PATCH` that changed the
 title at the same time.
+
+The `"failed"` write uses a **new** short context, not `ctx`. `process` usually
+fails *because* `ctx` hit its deadline; reusing that already-expired context for
+the status write would fail too and leave the document stuck at `"pending"`.
 
 **Recovering stuck documents:** when `Enqueue` returns `false` (full queue) or
 the process dies before a worker runs, a document is left at `status = "pending"`.

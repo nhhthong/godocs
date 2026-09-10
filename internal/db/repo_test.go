@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -128,6 +129,47 @@ func TestDocumentRepoListEscapesLikeWildcards(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Fatalf("len(items) = %d, expected 2 (constrained by LIMIT)", len(items))
+	}
+}
+
+// TestDocumentRepoListPaginationStable checks that paging through documents that
+// all share one created_at value returns every row exactly once (the id tie-breaker).
+func TestDocumentRepoListPaginationStable(t *testing.T) {
+	repo := NewDocumentRepo(openTestDB(t))
+	ctx := context.Background()
+
+	const n = 25
+	ts := time.Unix(1_700_000_000, 0).UTC() // identical for every row
+	for i := 0; i < n; i++ {
+		d := sampleDoc(fmt.Sprintf("doc-%02d", i))
+		d.CreatedAt, d.UpdatedAt = ts, ts
+		if err := repo.Create(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seen := map[string]int{}
+	const page = 10
+	for offset := 0; offset < n; offset += page {
+		items, total, err := repo.List(ctx, document.ListFilter{Limit: page, Offset: offset})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if total != n {
+			t.Fatalf("total = %d, want %d", total, n)
+		}
+		for _, it := range items {
+			seen[it.ID]++
+		}
+	}
+
+	if len(seen) != n {
+		t.Fatalf("saw %d distinct docs across all pages, want %d", len(seen), n)
+	}
+	for id, c := range seen {
+		if c != 1 {
+			t.Fatalf("doc %s appeared %d times across pages (want 1)", id, c)
+		}
 	}
 }
 

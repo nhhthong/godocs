@@ -168,13 +168,6 @@ Open your browser at **`http://localhost:8080`**. Create a test account, sign in
 | `make smoke` | Run end-to-end integration tests against a test HTTP server |
 | `make test` | Run tests with race detection and coverage reporting |
 
-### Running with Docker (Optional)
-If you prefer testing inside a container:
-```bash
-docker build -t godocs .
-docker run -p 8080:8080 -e APP_COOKIE_SECURE=false godocs
-```
-
 ---
 
 ## REST API Summary

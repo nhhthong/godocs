@@ -73,7 +73,7 @@ sequenceDiagram
     R->>R: build WHERE from the filter:<br/>created_by = ?  [+ (title LIKE ? OR summary LIKE ?) ESCAPE '\\']
     R->>DB: SELECT COUNT(*) FROM documents <WHERE>
     DB-->>R: total
-    R->>DB: SELECT <cols> FROM documents <WHERE> ORDER BY created_at DESC LIMIT ? OFFSET ?
+    R->>DB: SELECT <cols> FROM documents <WHERE> ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
     DB-->>R: rows
     R-->>S: (items, total, nil)
     S-->>H: (items, total)
@@ -99,7 +99,10 @@ sequenceDiagram
 
    and the query uses `LIKE ? ESCAPE '\'`, so those characters match literally.
 4. **Count, then fetch.** One `SELECT COUNT(*)` with the same `WHERE` for
-   `total`, then the page itself ordered by `created_at DESC`.
+   `total`, then the page itself, ordered `created_at DESC, id DESC`. The `id`
+   part matters: `created_at` is stored to the second, so many rows can share a
+   value; without a unique tie-breaker, two `OFFSET` pages could order the ties
+   differently and the client would see a row twice (or miss one).
 5. **Close the rows.** The repo `defer rows.Close()` and checks `rows.Err()`
    after the loop — skipping either is a classic `database/sql` bug that leaks
    connections or hides errors.

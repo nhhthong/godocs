@@ -55,7 +55,9 @@ func (s *Service) Register(ctx context.Context, email, password string) (*User, 
 	if email == "" || !strings.Contains(email, "@") {
 		return nil, fmt.Errorf("%w: invalid email address", ErrInvalidInput)
 	}
-	if len([]rune(password)) < 8 {
+	// Lower bound in characters; upper bound in bytes because bcrypt rejects
+	// inputs longer than 72 bytes (it would otherwise surface as a 500).
+	if len([]rune(password)) < 8 || len(password) > 72 {
 		return nil, ErrWeakPassword
 	}
 

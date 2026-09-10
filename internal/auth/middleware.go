@@ -6,6 +6,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/you/godocs/internal/httpx"
@@ -35,10 +36,16 @@ func (s *Service) RequireAuth(next http.Handler) http.Handler {
 		}
 
 		u, err := s.Authenticate(r.Context(), c.Value)
-		if err != nil {
-			// Clear invalid or expired cookie on the client
+		if errors.Is(err, ErrNoSession) {
+			// Genuinely bad session: clear the cookie and tell the client to log in.
 			http.SetCookie(w, &http.Cookie{Name: cookieName, Path: "/", MaxAge: -1})
 			httpx.Error(w, http.StatusUnauthorized, "unauthorized", "invalid or expired session", nil)
+			return
+		}
+		if err != nil {
+			// Infrastructure failure (DB down, timeout): 500, and leave the cookie
+			// alone so a transient outage doesn't log everyone out.
+			httpx.Error(w, http.StatusInternalServerError, "internal_error", "an internal error occurred", nil)
 			return
 		}
 
