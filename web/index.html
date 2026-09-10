@@ -1,0 +1,1254 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>godocs — Document Management System</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.4); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.6); }
+    [x-cloak] { display: none !important; }
+  </style>
+
+  <!-- Inline Script to initialize Theme immediately (prevents FOUC) -->
+  <script>
+    if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  </script>
+</head>
+
+<body class="h-full bg-slate-50 text-slate-900 antialiased transition-colors duration-200 dark:bg-slate-950 dark:text-slate-100 flex flex-col font-sans">
+
+  <!-- ==================== HEADER ==================== -->
+  <header class="sticky top-0 z-40 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/80">
+    <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+      
+      <!-- Brand Logo -->
+      <div class="flex items-center gap-3">
+        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-950">
+          <i data-lucide="file-text" class="h-5 w-5"></i>
+        </div>
+        <div>
+          <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white">godocs</span>
+          <span class="ml-1.5 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">v1.0</span>
+        </div>
+      </div>
+
+      <!-- Right Header Actions -->
+      <div class="flex items-center gap-2 sm:gap-4">
+        <!-- Server Health Indicator -->
+        <div id="healthBadge" class="hidden items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 sm:flex" title="System Status">
+          <span class="relative flex h-2 w-2">
+            <span id="healthPing" class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+            <span id="healthDot" class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+          </span>
+          <span id="healthText">Operational</span>
+        </div>
+
+        <!-- Dark / Light Theme Toggle -->
+        <button id="themeToggle" type="button" class="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title="Toggle Dark / Light Theme">
+          <i data-lucide="sun" id="sunIcon" class="hidden h-4 w-4"></i>
+          <i data-lucide="moon" id="moonIcon" class="h-4 w-4"></i>
+        </button>
+
+        <!-- User Profile Pill (Visible when logged in) -->
+        <div id="userPill" class="hidden items-center gap-3">
+          <div class="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 dark:border-slate-800 dark:bg-slate-900">
+            <div class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200" id="userInitial">U</div>
+            <span id="userEmailText" class="max-w-[120px] truncate text-xs font-medium text-slate-700 dark:text-slate-300 sm:max-w-[200px]">user@example.com</span>
+          </div>
+          <button id="logoutBtn" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 dark:border-slate-800 dark:bg-slate-900 dark:text-rose-400 dark:hover:bg-rose-950/40">
+            <i data-lucide="log-out" class="h-3.5 w-3.5"></i>
+            <span class="hidden sm:inline">Sign out</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== MAIN CONTENT ==================== -->
+  <main class="mx-auto flex-1 w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+
+    <!-- ==================== AUTH VIEW (When NOT logged in) ==================== -->
+    <div id="authSection" class="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center">
+      <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+        
+        <!-- Auth Header -->
+        <div class="text-center">
+          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white">
+            <i data-lucide="shield-check" class="h-6 w-6"></i>
+          </div>
+          <h2 class="text-xl font-bold tracking-tight text-slate-900 dark:text-white" id="authTitle">Sign in to your account</h2>
+          <p class="mt-1 text-xs text-slate-500 dark:text-slate-400" id="authSubtitle">Secure, high-performance document management</p>
+        </div>
+
+        <!-- Tabs: Sign In / Sign Up -->
+        <div class="mt-6 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+          <button id="tabLogin" type="button" class="rounded-lg bg-white py-2 text-xs font-semibold text-slate-900 shadow-sm transition dark:bg-slate-900 dark:text-white">Sign In</button>
+          <button id="tabRegister" type="button" class="rounded-lg py-2 text-xs font-semibold text-slate-500 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">Sign Up</button>
+        </div>
+
+        <!-- Auth Form -->
+        <form id="authForm" class="mt-6 space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300">Email address</label>
+            <div class="relative mt-1.5">
+              <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <i data-lucide="mail" class="h-4 w-4"></i>
+              </span>
+              <input name="email" type="email" required placeholder="name@company.com" class="block w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-slate-400 dark:focus:ring-white/10">
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300">Password</label>
+              <span id="pwdHint" class="text-[11px] text-slate-400">Min. 8 characters</span>
+            </div>
+            <div class="relative mt-1.5">
+              <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <i data-lucide="lock" class="h-4 w-4"></i>
+              </span>
+              <input name="password" id="authPassword" type="password" required placeholder="••••••••" minlength="8" class="block w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-slate-400 dark:focus:ring-white/10">
+              <button type="button" id="togglePasswordBtn" class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                <i data-lucide="eye" id="eyeIcon" class="h-4 w-4"></i>
+                <i data-lucide="eye-off" id="eyeOffIcon" class="hidden h-4 w-4"></i>
+              </button>
+            </div>
+
+            <!-- Password Format & Strength Checklist (Visible on Sign Up) -->
+            <div id="pwdCriteriaContainer" class="hidden mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-xs dark:border-slate-800 dark:bg-slate-900/50">
+              <!-- Strength Bar -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-[11px]">
+                  <span class="text-slate-500 dark:text-slate-400">Password strength:</span>
+                  <span id="pwdStrengthLabel" class="font-medium text-slate-500 dark:text-slate-400">Not entered</span>
+                </div>
+                <div class="grid grid-cols-4 gap-1.5 h-1.5">
+                  <div id="strBar1" class="rounded-full bg-slate-200 transition-colors dark:bg-slate-800"></div>
+                  <div id="strBar2" class="rounded-full bg-slate-200 transition-colors dark:bg-slate-800"></div>
+                  <div id="strBar3" class="rounded-full bg-slate-200 transition-colors dark:bg-slate-800"></div>
+                  <div id="strBar4" class="rounded-full bg-slate-200 transition-colors dark:bg-slate-800"></div>
+                </div>
+              </div>
+
+              <!-- Format Checklist -->
+              <div class="grid grid-cols-2 gap-1.5 pt-1 text-[11px]">
+                <div id="ruleLength" class="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 transition-colors">
+                  <i data-lucide="circle" class="h-3 w-3 shrink-0"></i>
+                  <span>At least 8 characters</span>
+                </div>
+                <div id="ruleCase" class="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 transition-colors">
+                  <i data-lucide="circle" class="h-3 w-3 shrink-0"></i>
+                  <span>Uppercase & lowercase</span>
+                </div>
+                <div id="ruleNumber" class="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 transition-colors">
+                  <i data-lucide="circle" class="h-3 w-3 shrink-0"></i>
+                  <span>At least 1 number (0-9)</span>
+                </div>
+                <div id="ruleSpecial" class="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 transition-colors">
+                  <i data-lucide="circle" class="h-3 w-3 shrink-0"></i>
+                  <span>Special symbol (!@#$)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Confirm Password Field (Visible on Sign Up) -->
+          <div id="confirmPasswordGroup" class="hidden">
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300">Confirm Password</label>
+              <span id="confirmMatchStatus" class="hidden text-[11px] font-medium"></span>
+            </div>
+            <div class="relative mt-1.5">
+              <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <i data-lucide="shield-check" class="h-4 w-4"></i>
+              </span>
+              <input name="confirmPassword" id="authConfirmPassword" type="password" placeholder="••••••••" class="block w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-slate-400 dark:focus:ring-white/10">
+              <button type="button" id="toggleConfirmPasswordBtn" class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                <i data-lucide="eye" id="confirmEyeIcon" class="h-4 w-4"></i>
+                <i data-lucide="eye-off" id="confirmEyeOffIcon" class="hidden h-4 w-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Error Alert Banner -->
+          <div id="authAlert" class="hidden rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 flex items-start gap-2">
+            <i data-lucide="alert-circle" class="h-4 w-4 shrink-0 text-rose-500"></i>
+            <span id="authAlertMsg">Invalid credentials</span>
+          </div>
+
+          <button id="authSubmitBtn" type="submit" class="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
+            <span id="authSubmitSpinner" class="hidden h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white dark:border-slate-950/20 dark:border-t-slate-950"></span>
+            <span id="authSubmitText">Sign In</span>
+          </button>
+        </form>
+
+      </div>
+    </div>
+
+    <!-- ==================== DASHBOARD VIEW (When Logged in) ==================== -->
+    <div id="dashboardSection" class="hidden space-y-6">
+
+      <!-- Metrics / Stat Cards -->
+      <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <!-- Stat 1: Total Docs -->
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Total Documents</span>
+            <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              <i data-lucide="files" class="h-4 w-4"></i>
+            </div>
+          </div>
+          <p id="metricTotalDocs" class="mt-2 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">0</p>
+        </div>
+
+        <!-- Stat 2: Ready Docs -->
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Ready</span>
+            <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+              <i data-lucide="check-circle-2" class="h-4 w-4"></i>
+            </div>
+          </div>
+          <p id="metricReadyDocs" class="mt-2 text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">0</p>
+        </div>
+
+        <!-- Stat 3: Processing Docs -->
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Processing</span>
+            <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
+              <i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i>
+            </div>
+          </div>
+          <p id="metricPendingDocs" class="mt-2 text-2xl font-bold tracking-tight text-amber-600 dark:text-amber-400">0</p>
+        </div>
+
+        <!-- Stat 4: Storage Used -->
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Storage Used</span>
+            <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-950/50 dark:text-sky-400">
+              <i data-lucide="hard-drive" class="h-4 w-4"></i>
+            </div>
+          </div>
+          <p id="metricStorageUsed" class="mt-2 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">0 B</p>
+        </div>
+      </div>
+
+      <!-- Action & Search Toolbar -->
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <!-- Search Input -->
+        <div class="relative w-full sm:w-80">
+          <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+            <i data-lucide="search" class="h-4 w-4"></i>
+          </span>
+          <input id="searchInput" type="text" placeholder="Search documents..." class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-8 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-slate-400">
+          <button id="clearSearchBtn" class="hidden absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title="Clear search">
+            <i data-lucide="x" class="h-4 w-4"></i>
+          </button>
+        </div>
+
+        <!-- Buttons: Refresh & Upload -->
+        <div class="flex items-center gap-2 self-end sm:self-auto">
+          <button id="refreshDocsBtn" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title="Refresh">
+            <i data-lucide="rotate-cw" id="refreshIcon" class="h-4 w-4"></i>
+            <span class="hidden sm:inline">Refresh</span>
+          </button>
+
+          <button id="openUploadModalBtn" type="button" class="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
+            <i data-lucide="upload-cloud" class="h-4 w-4"></i>
+            <span>Upload Document</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Document Table Container -->
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="border-b border-slate-200 bg-slate-50/75 text-xs font-semibold uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+              <tr>
+                <th scope="col" class="py-3.5 pl-4 pr-3 sm:pl-6">Document</th>
+                <th scope="col" class="hidden px-3 py-3.5 sm:table-cell">Format</th>
+                <th scope="col" class="px-3 py-3.5">Size</th>
+                <th scope="col" class="px-3 py-3.5">Status</th>
+                <th scope="col" class="hidden px-3 py-3.5 md:table-cell">Created</th>
+                <th scope="col" class="py-3.5 pl-3 pr-4 text-right sm:pr-6">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="docsTableBody" class="divide-y divide-slate-200 dark:divide-slate-800">
+              <!-- Rendered via Javascript -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Empty State (When no documents) -->
+        <div id="emptyState" class="hidden py-16 text-center">
+          <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+            <i data-lucide="folder-open" class="h-7 w-7"></i>
+          </div>
+          <h3 class="mt-4 text-sm font-semibold text-slate-900 dark:text-white">No documents found</h3>
+          <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Get started by uploading a PDF, image, or text file.</p>
+          <button id="emptyUploadBtn" type="button" class="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
+            <i data-lucide="upload-cloud" class="h-4 w-4"></i>
+            Upload now
+          </button>
+        </div>
+
+        <!-- Loading Table State -->
+        <div id="tableLoading" class="py-12 text-center text-slate-400 dark:text-slate-500">
+          <i data-lucide="loader-2" class="mx-auto h-6 w-6 animate-spin"></i>
+          <p class="mt-2 text-xs">Loading documents...</p>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ==================== UPLOAD MODAL ==================== -->
+  <div id="uploadModal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/50 backdrop-blur-sm transition-opacity flex items-center justify-center p-4">
+    <div class="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900 sm:p-7">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white">
+            <i data-lucide="upload" class="h-4 w-4"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900 dark:text-white">Upload New Document</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Supports PDF, PNG, JPG, TXT (Max 25MB)</p>
+          </div>
+        </div>
+        <button id="closeUploadModalBtn" class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200">
+          <i data-lucide="x" class="h-5 w-5"></i>
+        </button>
+      </div>
+
+      <!-- Upload Form -->
+      <form id="uploadForm" class="mt-5 space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300">Document Title <span class="text-rose-500">*</span></label>
+          <input name="title" type="text" required placeholder="e.g. Q3 2026 Financial Report" class="mt-1.5 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300">Summary / Description</label>
+          <textarea name="summary" rows="3" placeholder="Brief notes about the document contents..." class="mt-1.5 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"></textarea>
+        </div>
+
+        <!-- Drag & Drop Zone -->
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300">File Attachment <span class="text-rose-500">*</span></label>
+          <div id="dropzone" class="mt-1.5 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 p-6 text-center transition hover:border-slate-400 hover:bg-slate-100/50 dark:border-slate-700 dark:bg-slate-800/30 dark:hover:border-slate-600 cursor-pointer">
+            <input id="fileInput" name="file" type="file" required class="hidden" accept=".pdf,.png,.jpg,.jpeg,.txt">
+            <i data-lucide="cloud-arrow-up" class="h-10 w-10 text-slate-400 dark:text-slate-500"></i>
+            <p class="mt-2 text-xs font-medium text-slate-700 dark:text-slate-300" id="fileChosenText">
+              Drag and drop a file here or <span class="text-sky-600 dark:text-sky-400 underline">browse your device</span>
+            </p>
+            <p class="mt-1 text-[11px] text-slate-400">PDF, Images (PNG, JPG), Plain text (TXT)</p>
+          </div>
+        </div>
+
+        <!-- Modal Actions -->
+        <div class="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <button type="button" id="cancelUploadBtn" class="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
+          <button id="uploadSubmitBtn" type="submit" class="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-2 text-xs font-semibold text-white shadow transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
+            <span id="uploadSpinner" class="hidden h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white dark:border-slate-950/20 dark:border-t-slate-950"></span>
+            <span>Upload & Save</span>
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- ==================== EDIT MODAL ==================== -->
+  <div id="editModal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/50 backdrop-blur-sm transition-opacity flex items-center justify-center p-4">
+    <div class="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900 sm:p-7">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white">
+            <i data-lucide="edit-3" class="h-4 w-4"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900 dark:text-white">Edit Document</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Update title or summary</p>
+          </div>
+        </div>
+        <button id="closeEditModalBtn" class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200">
+          <i data-lucide="x" class="h-5 w-5"></i>
+        </button>
+      </div>
+
+      <!-- Edit Form -->
+      <form id="editForm" class="mt-5 space-y-4">
+        <input type="hidden" id="editDocId">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300">Document Title <span class="text-rose-500">*</span></label>
+          <input id="editTitleInput" name="title" type="text" required class="mt-1.5 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300">Summary</label>
+          <textarea id="editSummaryInput" name="summary" rows="4" class="mt-1.5 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white"></textarea>
+        </div>
+
+        <div class="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <button type="button" id="cancelEditBtn" class="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
+          <button id="editSubmitBtn" type="submit" class="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-2 text-xs font-semibold text-white shadow transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
+            <span id="editSpinner" class="hidden h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white dark:border-slate-950/20 dark:border-t-slate-950"></span>
+            <span>Save Changes</span>
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- ==================== TOAST NOTIFICATIONS ==================== -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm pointer-events-none"></div>
+
+  <!-- ==================== FRONTEND JAVASCRIPT ==================== -->
+  <script>
+    // --- State Management ---
+    let currentUser = null;
+    let authMode = 'login'; // 'login' | 'register'
+    let documentsList = [];
+    let pollingTimer = null;
+    let searchDebounce = null;
+
+    // --- DOM Elements ---
+    const themeToggleBtn = document.getElementById('themeToggle');
+    const sunIcon = document.getElementById('sunIcon');
+    const moonIcon = document.getElementById('moonIcon');
+    const userPill = document.getElementById('userPill');
+    const userEmailText = document.getElementById('userEmailText');
+    const userInitial = document.getElementById('userInitial');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    const authSection = document.getElementById('authSection');
+    const authForm = document.getElementById('authForm');
+    const authTitle = document.getElementById('authTitle');
+    const authSubtitle = document.getElementById('authSubtitle');
+    const authSubmitText = document.getElementById('authSubmitText');
+    const tabLogin = document.getElementById('tabLogin');
+    const tabRegister = document.getElementById('tabRegister');
+    const authAlert = document.getElementById('authAlert');
+    const authAlertMsg = document.getElementById('authAlertMsg');
+    const authSubmitBtn = document.getElementById('authSubmitBtn');
+    const authSubmitSpinner = document.getElementById('authSubmitSpinner');
+
+    const togglePasswordBtn = document.getElementById('togglePasswordBtn');
+    const authPasswordInput = document.getElementById('authPassword');
+    const eyeIcon = document.getElementById('eyeIcon');
+    const eyeOffIcon = document.getElementById('eyeOffIcon');
+
+    const pwdCriteriaContainer = document.getElementById('pwdCriteriaContainer');
+    const pwdStrengthLabel = document.getElementById('pwdStrengthLabel');
+    const strBar1 = document.getElementById('strBar1');
+    const strBar2 = document.getElementById('strBar2');
+    const strBar3 = document.getElementById('strBar3');
+    const strBar4 = document.getElementById('strBar4');
+    const ruleLength = document.getElementById('ruleLength');
+    const ruleCase = document.getElementById('ruleCase');
+    const ruleNumber = document.getElementById('ruleNumber');
+    const ruleSpecial = document.getElementById('ruleSpecial');
+
+    const confirmPasswordGroup = document.getElementById('confirmPasswordGroup');
+    const authConfirmPasswordInput = document.getElementById('authConfirmPassword');
+    const toggleConfirmPasswordBtn = document.getElementById('toggleConfirmPasswordBtn');
+    const confirmEyeIcon = document.getElementById('confirmEyeIcon');
+    const confirmEyeOffIcon = document.getElementById('confirmEyeOffIcon');
+    const confirmMatchStatus = document.getElementById('confirmMatchStatus');
+
+    const dashboardSection = document.getElementById('dashboardSection');
+    const docsTableBody = document.getElementById('docsTableBody');
+    const emptyState = document.getElementById('emptyState');
+    const tableLoading = document.getElementById('tableLoading');
+    const searchInput = document.getElementById('searchInput');
+    const clearSearchBtn = document.getElementById('clearSearchBtn');
+    const refreshDocsBtn = document.getElementById('refreshDocsBtn');
+    const refreshIcon = document.getElementById('refreshIcon');
+
+    const uploadModal = document.getElementById('uploadModal');
+    const openUploadModalBtn = document.getElementById('openUploadModalBtn');
+    const emptyUploadBtn = document.getElementById('emptyUploadBtn');
+    const closeUploadModalBtn = document.getElementById('closeUploadModalBtn');
+    const cancelUploadBtn = document.getElementById('cancelUploadBtn');
+    const uploadForm = document.getElementById('uploadForm');
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const fileChosenText = document.getElementById('fileChosenText');
+    const uploadSubmitBtn = document.getElementById('uploadSubmitBtn');
+    const uploadSpinner = document.getElementById('uploadSpinner');
+
+    const editModal = document.getElementById('editModal');
+    const closeEditModalBtn = document.getElementById('closeEditModalBtn');
+    const cancelEditBtn = document.getElementById('cancelEditBtn');
+    const editForm = document.getElementById('editForm');
+    const editDocId = document.getElementById('editDocId');
+    const editTitleInput = document.getElementById('editTitleInput');
+    const editSummaryInput = document.getElementById('editSummaryInput');
+    const editSpinner = document.getElementById('editSpinner');
+
+    // --- Theme Controller (Light / Dark) ---
+    function updateThemeIcons() {
+      const isDark = document.documentElement.classList.contains('dark');
+      if (isDark) {
+        sunIcon.classList.remove('hidden');
+        moonIcon.classList.add('hidden');
+      } else {
+        sunIcon.classList.add('hidden');
+        moonIcon.classList.remove('hidden');
+      }
+      lucide.createIcons();
+    }
+
+    themeToggleBtn.addEventListener('click', () => {
+      if (document.documentElement.classList.contains('dark')) {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
+      } else {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
+      }
+      updateThemeIcons();
+    });
+
+    updateThemeIcons();
+
+    // --- API Helper Wrapper ---
+    async function api(path, opts = {}) {
+      try {
+        const res = await fetch(path, opts);
+        if (res.status === 429) {
+          const retryAfter = res.headers.get('Retry-After') || '1';
+          showToast(`Too many requests. Please retry in ${retryAfter} second(s).`, 'warning');
+        }
+        let body = null;
+        if (res.status !== 204) {
+          const contentType = res.headers.get('Content-Type') || '';
+          if (contentType.includes('application/json')) {
+            body = await res.json();
+          }
+        }
+        return { status: res.status, body, ok: res.ok };
+      } catch (err) {
+        return { status: 0, error: err, ok: false };
+      }
+    }
+
+    // --- Toast Notifications ---
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto flex items-center gap-3 rounded-xl border p-4 shadow-lg transition-all duration-300 transform translate-y-2 opacity-0 text-xs font-medium ${
+        type === 'success' ? 'bg-emerald-900/90 text-white border-emerald-700 dark:bg-emerald-950 dark:border-emerald-800' :
+        type === 'error' ? 'bg-rose-900/90 text-white border-rose-700 dark:bg-rose-950 dark:border-rose-800' :
+        type === 'warning' ? 'bg-amber-900/90 text-white border-amber-700 dark:bg-amber-950 dark:border-amber-800' :
+        'bg-slate-900/90 text-white border-slate-700 dark:bg-slate-800 dark:border-slate-700'
+      }`;
+
+      let icon = 'info';
+      if (type === 'success') icon = 'check-circle';
+      if (type === 'error') icon = 'alert-circle';
+      if (type === 'warning') icon = 'alert-triangle';
+
+      toast.innerHTML = `
+        <i data-lucide="${icon}" class="h-4 w-4 shrink-0"></i>
+        <span class="flex-1 leading-relaxed">${message}</span>
+      `;
+
+      document.getElementById('toastContainer').appendChild(toast);
+      lucide.createIcons();
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-x-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // --- Server Health Ping ---
+    async function checkHealth() {
+      const { status } = await api('/healthz');
+      const healthDot = document.getElementById('healthDot');
+      const healthPing = document.getElementById('healthPing');
+      const healthText = document.getElementById('healthText');
+
+      if (status === 200) {
+        healthDot.className = 'relative inline-flex h-2 w-2 rounded-full bg-emerald-500';
+        healthPing.className = 'absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75';
+        healthText.textContent = 'Operational';
+      } else {
+        healthDot.className = 'relative inline-flex h-2 w-2 rounded-full bg-rose-500';
+        healthPing.className = 'hidden';
+        healthText.textContent = 'Database Offline';
+      }
+    }
+
+    // --- Auth View Controls ---
+    function setAuthMode(mode) {
+      authMode = mode;
+      authAlert.classList.add('hidden');
+      if (mode === 'login') {
+        tabLogin.className = 'rounded-lg bg-white py-2 text-xs font-semibold text-slate-900 shadow-sm transition dark:bg-slate-900 dark:text-white';
+        tabRegister.className = 'rounded-lg py-2 text-xs font-semibold text-slate-500 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-white';
+        authTitle.textContent = 'Sign in to your account';
+        authSubtitle.textContent = 'Secure, high-performance document management';
+        authSubmitText.textContent = 'Sign In';
+        
+        confirmPasswordGroup.classList.add('hidden');
+        pwdCriteriaContainer.classList.add('hidden');
+        authConfirmPasswordInput.removeAttribute('required');
+        authConfirmPasswordInput.value = '';
+        confirmMatchStatus.classList.add('hidden');
+        authConfirmPasswordInput.classList.remove('border-emerald-500', 'border-rose-500', 'focus:border-emerald-500', 'focus:border-rose-500');
+      } else {
+        tabRegister.className = 'rounded-lg bg-white py-2 text-xs font-semibold text-slate-900 shadow-sm transition dark:bg-slate-900 dark:text-white';
+        tabLogin.className = 'rounded-lg py-2 text-xs font-semibold text-slate-500 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-white';
+        authTitle.textContent = 'Create a new account';
+        authSubtitle.textContent = 'Get started in seconds with modern document storage';
+        authSubmitText.textContent = 'Create Account';
+        
+        confirmPasswordGroup.classList.remove('hidden');
+        pwdCriteriaContainer.classList.remove('hidden');
+        authConfirmPasswordInput.setAttribute('required', 'required');
+        updatePasswordUI();
+      }
+      lucide.createIcons();
+    }
+
+    tabLogin.addEventListener('click', () => setAuthMode('login'));
+    tabRegister.addEventListener('click', () => setAuthMode('register'));
+
+    // Toggle Password Visibility
+    togglePasswordBtn.addEventListener('click', () => {
+      if (authPasswordInput.type === 'password') {
+        authPasswordInput.type = 'text';
+        eyeIcon.classList.add('hidden');
+        eyeOffIcon.classList.remove('hidden');
+      } else {
+        authPasswordInput.type = 'password';
+        eyeIcon.classList.remove('hidden');
+        eyeOffIcon.classList.add('hidden');
+      }
+      lucide.createIcons();
+    });
+
+    // Toggle Confirm Password Visibility
+    toggleConfirmPasswordBtn.addEventListener('click', () => {
+      if (authConfirmPasswordInput.type === 'password') {
+        authConfirmPasswordInput.type = 'text';
+        confirmEyeIcon.classList.add('hidden');
+        confirmEyeOffIcon.classList.remove('hidden');
+      } else {
+        authConfirmPasswordInput.type = 'password';
+        confirmEyeIcon.classList.remove('hidden');
+        confirmEyeOffIcon.classList.add('hidden');
+      }
+      lucide.createIcons();
+    });
+
+    // --- Password Format & Strength Evaluator ---
+    function evaluatePassword(pwd) {
+      return {
+        length: (pwd || '').length >= 8,
+        cases: /[a-z]/.test(pwd) && /[A-Z]/.test(pwd),
+        number: /[0-9]/.test(pwd),
+        special: /[^a-zA-Z0-9]/.test(pwd),
+      };
+    }
+
+    function updateRuleIndicator(el, passed) {
+      const icon = el.querySelector('i');
+      if (passed) {
+        el.className = 'flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium transition-colors';
+        if (icon) {
+          icon.setAttribute('data-lucide', 'check-circle-2');
+          icon.className = 'h-3 w-3 shrink-0 text-emerald-500';
+        }
+      } else {
+        el.className = 'flex items-center gap-1.5 text-slate-500 dark:text-slate-400 transition-colors';
+        if (icon) {
+          icon.setAttribute('data-lucide', 'circle');
+          icon.className = 'h-3 w-3 shrink-0 text-slate-400';
+        }
+      }
+    }
+
+    function updatePasswordUI() {
+      if (authMode !== 'register') return;
+      const pwd = authPasswordInput.value || '';
+      const rules = evaluatePassword(pwd);
+
+      updateRuleIndicator(ruleLength, rules.length);
+      updateRuleIndicator(ruleCase, rules.cases);
+      updateRuleIndicator(ruleNumber, rules.number);
+      updateRuleIndicator(ruleSpecial, rules.special);
+
+      const score = [rules.length, rules.cases, rules.number, rules.special].filter(Boolean).length;
+      const bars = [strBar1, strBar2, strBar3, strBar4];
+
+      // Reset bars
+      bars.forEach(b => {
+        b.className = 'rounded-full transition-colors h-1.5 bg-slate-200 dark:bg-slate-800';
+      });
+
+      if (!pwd) {
+        pwdStrengthLabel.textContent = 'Not entered';
+        pwdStrengthLabel.className = 'font-medium text-slate-500 dark:text-slate-400';
+      } else if (score === 1) {
+        pwdStrengthLabel.textContent = 'Very weak';
+        pwdStrengthLabel.className = 'font-medium text-rose-500';
+        strBar1.className = 'rounded-full transition-colors h-1.5 bg-rose-500';
+      } else if (score === 2) {
+        pwdStrengthLabel.textContent = 'Weak';
+        pwdStrengthLabel.className = 'font-medium text-amber-500';
+        strBar1.className = strBar2.className = 'rounded-full transition-colors h-1.5 bg-amber-500';
+      } else if (score === 3) {
+        pwdStrengthLabel.textContent = 'Good';
+        pwdStrengthLabel.className = 'font-medium text-blue-500';
+        strBar1.className = strBar2.className = strBar3.className = 'rounded-full transition-colors h-1.5 bg-blue-500';
+      } else if (score === 4) {
+        pwdStrengthLabel.textContent = 'Strong';
+        pwdStrengthLabel.className = 'font-medium text-emerald-500';
+        bars.forEach(b => b.className = 'rounded-full transition-colors h-1.5 bg-emerald-500');
+      }
+
+      checkPasswordMatch();
+      lucide.createIcons();
+    }
+
+    function checkPasswordMatch() {
+      if (authMode !== 'register') return;
+      const pwd = authPasswordInput.value || '';
+      const confirmPwd = authConfirmPasswordInput.value || '';
+
+      if (!confirmPwd) {
+        confirmMatchStatus.classList.add('hidden');
+        authConfirmPasswordInput.classList.remove('border-emerald-500', 'border-rose-500', 'focus:border-emerald-500', 'focus:border-rose-500');
+        return;
+      }
+
+      confirmMatchStatus.classList.remove('hidden');
+      if (pwd === confirmPwd) {
+        confirmMatchStatus.textContent = 'Passwords match';
+        confirmMatchStatus.className = 'text-[11px] font-semibold text-emerald-600 dark:text-emerald-400';
+        authConfirmPasswordInput.classList.add('border-emerald-500', 'focus:border-emerald-500');
+        authConfirmPasswordInput.classList.remove('border-rose-500', 'focus:border-rose-500');
+      } else {
+        confirmMatchStatus.textContent = 'Passwords do not match';
+        confirmMatchStatus.className = 'text-[11px] font-semibold text-rose-600 dark:text-rose-400';
+        authConfirmPasswordInput.classList.add('border-rose-500', 'focus:border-rose-500');
+        authConfirmPasswordInput.classList.remove('border-emerald-500', 'focus:border-emerald-500');
+      }
+    }
+
+    authPasswordInput.addEventListener('input', updatePasswordUI);
+    authConfirmPasswordInput.addEventListener('input', checkPasswordMatch);
+
+    // Auth Form Submit (Login & Register)
+    authForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      authAlert.classList.add('hidden');
+
+      const formData = new FormData(e.target);
+      const email = (formData.get('email') || '').toString().trim();
+      const password = (formData.get('password') || '').toString();
+
+      // Additional validation on Registration
+      if (authMode === 'register') {
+        const rules = evaluatePassword(password);
+        if (!rules.length) {
+          authAlertMsg.textContent = 'Password must be at least 8 characters.';
+          authAlert.classList.remove('hidden');
+          authPasswordInput.focus();
+          return;
+        }
+        if (!rules.cases || !rules.number) {
+          authAlertMsg.textContent = 'Password must contain uppercase, lowercase, and at least one number.';
+          authAlert.classList.remove('hidden');
+          authPasswordInput.focus();
+          return;
+        }
+
+        const confirmPassword = authConfirmPasswordInput.value || '';
+        if (password !== confirmPassword) {
+          authAlertMsg.textContent = 'Passwords do not match.';
+          authAlert.classList.remove('hidden');
+          authConfirmPasswordInput.focus();
+          return;
+        }
+      }
+
+      authSubmitBtn.disabled = true;
+      authSubmitSpinner.classList.remove('hidden');
+
+      const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const { status, body } = await api(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      authSubmitBtn.disabled = false;
+      authSubmitSpinner.classList.add('hidden');
+
+      if (status === 200 || status === 201) {
+        if (authMode === 'register') {
+          showToast('Account created successfully! Please sign in with your credentials.', 'success');
+          setAuthMode('login');
+          authForm.reset();
+        } else {
+          showToast('Signed in successfully!', 'success');
+          authForm.reset();
+          await refreshSession();
+        }
+      } else {
+        let msg = body?.error?.message;
+        if (!msg) {
+          msg = authMode === 'login' ? 'Invalid email or password' : 'Registration failed';
+        }
+        if (msg.includes('mat khau toi thieu 8 ky tu') || msg.includes('weak password')) {
+          msg = 'Password is too weak (minimum 8 characters).';
+        } else if (msg.includes('email da duoc dang ky') || msg.includes('email taken')) {
+          msg = 'This email is already registered. Please sign in.';
+        }
+        authAlertMsg.textContent = msg;
+        authAlert.classList.remove('hidden');
+      }
+    });
+
+    // Logout Action
+    logoutBtn.addEventListener('click', async () => {
+      await api('/api/auth/logout', { method: 'POST' });
+      currentUser = null;
+      showToast('Signed out successfully', 'info');
+      stopPolling();
+      await refreshSession();
+    });
+
+    // --- Session Verification ---
+    async function refreshSession() {
+      const { status, body } = await api('/api/auth/me');
+      if (status === 200 && body?.email) {
+        currentUser = body;
+        userEmailText.textContent = body.email;
+        userInitial.textContent = (body.email[0] || 'U').toUpperCase();
+        userPill.classList.remove('hidden');
+        userPill.classList.add('flex');
+        authSection.classList.add('hidden');
+        dashboardSection.classList.remove('hidden');
+        await loadDocuments();
+      } else {
+        currentUser = null;
+        userPill.classList.add('hidden');
+        userPill.classList.remove('flex');
+        authSection.classList.remove('hidden');
+        dashboardSection.classList.add('hidden');
+      }
+      lucide.createIcons();
+    }
+
+    // --- Formatting Utilities ---
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function getFileIcon(mimeType, fileName = '') {
+      const ext = fileName.split('.').pop().toLowerCase();
+      if (mimeType.includes('pdf') || ext === 'pdf') return 'file-text';
+      if (mimeType.includes('image') || ['png', 'jpg', 'jpeg', 'gif'].includes(ext)) return 'file-image';
+      if (mimeType.includes('text') || ext === 'txt') return 'file-code';
+      return 'file';
+    }
+
+    // --- Documents Management ---
+    async function loadDocuments(query = '') {
+      tableLoading.classList.remove('hidden');
+      emptyState.classList.add('hidden');
+      docsTableBody.innerHTML = '';
+
+      let url = '/api/documents?limit=100';
+      if (query.trim()) {
+        url += '&q=' + encodeURIComponent(query.trim());
+      }
+
+      const { status, body } = await api(url);
+      tableLoading.classList.add('hidden');
+
+      if (status === 200 && body?.items) {
+        documentsList = body.items;
+        updateMetrics(documentsList);
+        renderDocumentsTable(documentsList);
+        checkPendingJobs(documentsList);
+      } else {
+        emptyState.classList.remove('hidden');
+      }
+    }
+
+    function updateMetrics(docs) {
+      document.getElementById('metricTotalDocs').textContent = docs.length;
+      const readyCount = docs.filter(d => d.status === 'ready').length;
+      const pendingCount = docs.filter(d => d.status === 'pending').length;
+      const totalBytes = docs.reduce((acc, cur) => acc + (cur.size_bytes || 0), 0);
+
+      document.getElementById('metricReadyDocs').textContent = readyCount;
+      document.getElementById('metricPendingDocs').textContent = pendingCount;
+      document.getElementById('metricStorageUsed').textContent = formatBytes(totalBytes);
+    }
+
+    function renderDocumentsTable(docs) {
+      if (docs.length === 0) {
+        emptyState.classList.remove('hidden');
+        return;
+      }
+      emptyState.classList.add('hidden');
+
+      docsTableBody.innerHTML = docs.map(doc => {
+        const icon = getFileIcon(doc.mime_type, doc.file_name);
+        let statusBadge = '';
+        if (doc.status === 'ready') {
+          statusBadge = `<span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"><i data-lucide="check" class="h-3 w-3"></i> Ready</span>`;
+        } else if (doc.status === 'pending') {
+          statusBadge = `<span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"><i data-lucide="loader-2" class="h-3 w-3 animate-spin"></i> Processing</span>`;
+        } else {
+          statusBadge = `<span class="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"><i data-lucide="x" class="h-3 w-3"></i> Failed</span>`;
+        }
+
+        return `
+          <tr class="transition hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
+            <!-- Title & File Name -->
+            <td class="py-3.5 pl-4 pr-3 sm:pl-6">
+              <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  <i data-lucide="${icon}" class="h-5 w-5"></i>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="font-semibold text-slate-900 truncate dark:text-white" title="${escapeHtml(doc.title)}">${escapeHtml(doc.title)}</div>
+                  <div class="text-xs text-slate-500 truncate dark:text-slate-400" title="${escapeHtml(doc.file_name)}">${escapeHtml(doc.file_name)}</div>
+                  ${doc.summary ? `<div class="mt-0.5 text-[11px] text-slate-400 truncate max-w-xs">${escapeHtml(doc.summary)}</div>` : ''}
+                </div>
+              </div>
+            </td>
+
+            <!-- MIME -->
+            <td class="hidden px-3 py-3.5 text-xs text-slate-500 dark:text-slate-400 sm:table-cell">
+              <span class="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">${escapeHtml(doc.mime_type)}</span>
+            </td>
+
+            <!-- Size -->
+            <td class="whitespace-nowrap px-3 py-3.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+              ${formatBytes(doc.size_bytes)}
+            </td>
+
+            <!-- Status -->
+            <td class="whitespace-nowrap px-3 py-3.5">
+              ${statusBadge}
+            </td>
+
+            <!-- Created At -->
+            <td class="hidden whitespace-nowrap px-3 py-3.5 text-xs text-slate-500 dark:text-slate-400 md:table-cell">
+              ${formatDate(doc.created_at)}
+            </td>
+
+            <!-- Actions -->
+            <td class="whitespace-nowrap py-3.5 pl-3 pr-4 text-right sm:pr-6">
+              <div class="flex items-center justify-end gap-1.5">
+                <a href="/api/documents/${doc.id}/file" download="${escapeHtml(doc.file_name)}" class="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" title="Download file">
+                  <i data-lucide="download" class="h-4 w-4"></i>
+                </a>
+                <button onclick="openEditModal('${doc.id}')" type="button" class="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" title="Edit details">
+                  <i data-lucide="edit-2" class="h-4 w-4"></i>
+                </button>
+                <button onclick="deleteDocument('${doc.id}')" type="button" class="rounded-lg p-1.5 text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-400" title="Delete document">
+                  <i data-lucide="trash-2" class="h-4 w-4"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      lucide.createIcons();
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // --- Search with Debounce ---
+    searchInput.addEventListener('input', (e) => {
+      const val = e.target.value;
+      if (val) {
+        clearSearchBtn.classList.remove('hidden');
+      } else {
+        clearSearchBtn.classList.add('hidden');
+      }
+
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        loadDocuments(val);
+      }, 300);
+    });
+
+    clearSearchBtn.addEventListener('click', () => {
+      searchInput.value = '';
+      clearSearchBtn.classList.add('hidden');
+      loadDocuments('');
+    });
+
+    // Refresh Button Click
+    refreshDocsBtn.addEventListener('click', async () => {
+      refreshIcon.classList.add('animate-spin');
+      await loadDocuments(searchInput.value);
+      setTimeout(() => refreshIcon.classList.remove('animate-spin'), 500);
+    });
+
+    // --- Auto-Polling when Pending Jobs exist ---
+    function checkPendingJobs(docs) {
+      const hasPending = docs.some(d => d.status === 'pending');
+      stopPolling();
+      if (hasPending) {
+        pollingTimer = setTimeout(async () => {
+          await loadDocuments(searchInput.value);
+        }, 2000);
+      }
+    }
+
+    function stopPolling() {
+      if (pollingTimer) {
+        clearTimeout(pollingTimer);
+        pollingTimer = null;
+      }
+    }
+
+    // --- Upload Modal Handlers ---
+    function openUploadModal() {
+      uploadForm.reset();
+      fileChosenText.innerHTML = 'Drag and drop a file here or <span class="text-sky-600 dark:text-sky-400 underline">browse your device</span>';
+      uploadModal.classList.remove('hidden');
+    }
+
+    function closeUploadModal() {
+      uploadModal.classList.add('hidden');
+    }
+
+    openUploadModalBtn.addEventListener('click', openUploadModal);
+    emptyUploadBtn.addEventListener('click', openUploadModal);
+    closeUploadModalBtn.addEventListener('click', closeUploadModal);
+    cancelUploadBtn.addEventListener('click', closeUploadModal);
+
+    // Dropzone interaction
+    dropzone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        const file = e.target.files[0];
+        fileChosenText.innerHTML = `<strong>${escapeHtml(file.name)}</strong> (${formatBytes(file.size)})`;
+      }
+    });
+
+    ['dragenter', 'dragover'].forEach(name => {
+      dropzone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropzone.classList.add('border-sky-500', 'bg-sky-50/50', 'dark:bg-sky-950/20');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(name => {
+      dropzone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('border-sky-500', 'bg-sky-50/50', 'dark:bg-sky-950/20');
+      });
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files.length > 0) {
+        fileInput.files = e.dataTransfer.files;
+        const file = e.dataTransfer.files[0];
+        fileChosenText.innerHTML = `<strong>${escapeHtml(file.name)}</strong> (${formatBytes(file.size)})`;
+      }
+    });
+
+    // Upload Form Submit
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      uploadSubmitBtn.disabled = true;
+      uploadSpinner.classList.remove('hidden');
+
+      const formData = new FormData(uploadForm);
+      const file = formData.get('file');
+
+      // Max upload check: 25MB
+      if (file && file.size > 25 * 1024 * 1024) {
+        showToast('File size exceeds the allowed 25MB limit.', 'error');
+        uploadSubmitBtn.disabled = false;
+        uploadSpinner.classList.add('hidden');
+        return;
+      }
+
+      const { status, body } = await api('/api/documents', {
+        method: 'POST',
+        body: formData,
+      });
+
+      uploadSubmitBtn.disabled = false;
+      uploadSpinner.classList.add('hidden');
+
+      if (status === 201) {
+        showToast('Upload successful! Document is being processed in background.', 'success');
+        closeUploadModal();
+        await loadDocuments(searchInput.value);
+      } else {
+        const msg = body?.error?.message || 'Failed to upload document.';
+        showToast(msg, 'error');
+      }
+    });
+
+    // --- Edit Modal Handlers ---
+    window.openEditModal = function(id) {
+      const doc = documentsList.find(d => d.id === id);
+      if (!doc) return;
+      editDocId.value = doc.id;
+      editTitleInput.value = doc.title || '';
+      editSummaryInput.value = doc.summary || '';
+      editModal.classList.remove('hidden');
+    };
+
+    function closeEditModal() {
+      editModal.classList.add('hidden');
+    }
+
+    closeEditModalBtn.addEventListener('click', closeEditModal);
+    cancelEditBtn.addEventListener('click', closeEditModal);
+
+    editForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      editSubmitBtn.disabled = true;
+      editSpinner.classList.remove('hidden');
+
+      const id = editDocId.value;
+      const title = editTitleInput.value;
+      const summary = editSummaryInput.value;
+
+      const { status, body } = await api(`/api/documents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, summary })
+      });
+
+      editSubmitBtn.disabled = false;
+      editSpinner.classList.add('hidden');
+
+      if (status === 200) {
+        showToast('Document updated successfully!', 'success');
+        closeEditModal();
+        await loadDocuments(searchInput.value);
+      } else {
+        const msg = body?.error?.message || 'Failed to update document.';
+        showToast(msg, 'error');
+      }
+    });
+
+    // --- Delete Document Action ---
+    window.deleteDocument = async function(id) {
+      const doc = documentsList.find(d => d.id === id);
+      const title = doc ? ` "${doc.title}"` : '';
+      if (!confirm(`Are you sure you want to delete${title}? This action cannot be undone.`)) {
+        return;
+      }
+
+      const { status } = await api(`/api/documents/${id}`, { method: 'DELETE' });
+      if (status === 204) {
+        showToast('Document deleted successfully.', 'success');
+        await loadDocuments(searchInput.value);
+      } else {
+        showToast('Failed to delete document.', 'error');
+      }
+    };
+
+    // Close modals on ESC key
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeUploadModal();
+        closeEditModal();
+      }
+    });
+
+    // --- App Init ---
+    async function init() {
+      await checkHealth();
+      setInterval(checkHealth, 30000); // Ping health every 30s
+      await refreshSession();
+    }
+
+    init();
+  </script>
+</body>
+</html>

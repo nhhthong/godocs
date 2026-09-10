@@ -1,0 +1,39 @@
+# Cau hinh golangci-lint (chay bang: make lint).
+# golangci-lint gom nhieu linter lai, chay song song, cache ket qua.
+# Doc them: https://golangci-lint.run/usage/linters/
+
+run:
+  timeout: 3m
+  tests: true
+
+linters:
+  # Bat them ngoai bo mac dinh (errcheck, gosimple, govet, ineffassign, staticcheck, unused).
+  enable:
+    - bodyclose      # response.Body phai duoc Close (ro ri ket noi)
+    - errorlint      # dung errors.Is/As thay vi so sanh == / ep kieu truc tiep
+    - gocritic       # bat loi phong cach + hieu nang pho bien
+    - gosec          # quet loi bao mat co ban
+    - misspell       # sai chinh ta trong comment/string (tieng Anh)
+    - nilerr         # `return nil` trong khi err != nil
+    - revive         # thay golint (da bo): quy tac dat ten, doc comment...
+    - unconvert      # ep kieu thua
+    - unparam        # tham so ham khong bao gio duoc dung
+
+issues:
+  # Mac dinh golangci-lint an bot issue "pho bien"; tat de thay het.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # File test: noi long gosec (vd dung http khong TLS, hardcode credential test).
+    - path: _test\.go
+      linters: [gosec, unparam]
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported          # kieu/ham exported nen co doc comment
+      - name: context-as-argument
+      - name: error-return
+  gosec:
+    excludes:
+      - G404   # math/rand: du an nay khong dung cho crypto (da co crypto/rand rieng)
