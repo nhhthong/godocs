@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // --- In-Memory Fakes: Satisfy consumer contracts without heavyweight mocking libraries ---
@@ -38,7 +39,21 @@ func (f *fakeRepo) GetByID(_ context.Context, id string) (*Document, error) {
 	return &cp, nil
 }
 
-func (f *fakeRepo) List(context.Context, ListFilter) ([]Document, int, error) { return nil, 0, nil }
+func (f *fakeRepo) List(_ context.Context, flt ListFilter) ([]Document, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []Document
+	for _, d := range f.data {
+		if flt.Owner != "" && d.CreatedBy != flt.Owner {
+			continue
+		}
+		if flt.Status != "" && d.Status != flt.Status {
+			continue
+		}
+		out = append(out, *d)
+	}
+	return out, len(out), nil
+}
 
 func (f *fakeRepo) Update(_ context.Context, d *Document) error {
 	f.mu.Lock()
@@ -51,6 +66,18 @@ func (f *fakeRepo) Update(_ context.Context, d *Document) error {
 	return nil
 }
 
+func (f *fakeRepo) SetStatus(_ context.Context, id string, st Status, updatedAt time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.data[id]
+	if !ok {
+		return ErrNotFound
+	}
+	d.Status = st
+	d.UpdatedAt = updatedAt
+	return nil
+}
+
 func (f *fakeRepo) Delete(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -58,11 +85,15 @@ func (f *fakeRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-type fakeBlob struct{ deleted []string }
+type fakeBlob struct {
+	deleted  []string
+	savedExt string
+}
 
-func (f *fakeBlob) Save(_ context.Context, _ string, r io.Reader) (StoredBlob, error) {
+func (f *fakeBlob) Save(_ context.Context, ext string, r io.Reader) (StoredBlob, error) {
+	f.savedExt = ext
 	n, _ := io.Copy(io.Discard, r)
-	return StoredBlob{Path: "x/y.bin", Size: n, Checksum: "deadbeef"}, nil
+	return StoredBlob{Path: "x/y" + ext, Size: n, Checksum: "deadbeef"}, nil
 }
 func (f *fakeBlob) Delete(_ context.Context, p string) error {
 	f.deleted = append(f.deleted, p)
@@ -140,10 +171,88 @@ func TestServiceCreate(t *testing.T) {
 	}
 }
 
+// TestServiceCreateExtensionFromMime verifies the stored extension is derived from the
+// sniffed MIME type, ignoring a hostile client filename.
+func TestServiceCreateExtensionFromMime(t *testing.T) {
+	svc, _, blob := newTestService()
+	pdf := "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
+	if _, err := svc.Create(context.Background(), CreateInput{
+		Title: "invoice", FileName: "evil.php", File: strings.NewReader(pdf),
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if blob.savedExt != ".pdf" {
+		t.Fatalf("stored extension = %q, want .pdf (client filename must not leak through)", blob.savedExt)
+	}
+}
+
 func TestServiceGetNotFound(t *testing.T) {
 	svc, _, _ := newTestService()
-	_, err := svc.Get(context.Background(), "non-existent-id")
+	_, err := svc.Get(context.Background(), "non-existent-id", "")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, expected ErrNotFound", err)
+	}
+}
+
+// TestServiceOwnership verifies a user cannot read, update, or delete another user's document.
+func TestServiceOwnership(t *testing.T) {
+	svc, repo, _ := newTestService()
+	ctx := context.Background()
+	repo.data["d1"] = &Document{ID: "d1", Title: "owned", CreatedBy: "alice"}
+
+	if _, err := svc.Get(ctx, "d1", "bob"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get as bob: err = %v, expected ErrNotFound", err)
+	}
+	if _, err := svc.Update(ctx, "d1", "bob", UpdateInput{}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Update as bob: err = %v, expected ErrNotFound", err)
+	}
+	if err := svc.Delete(ctx, "d1", "bob"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Delete as bob: err = %v, expected ErrNotFound", err)
+	}
+	if _, err := svc.Get(ctx, "d1", "alice"); err != nil {
+		t.Fatalf("Get as alice: unexpected err %v", err)
+	}
+}
+
+// TestMarkStatusDoesNotClobberMetadata verifies MarkStatus touches only the status
+// column, so it cannot overwrite a concurrent title/summary edit.
+func TestMarkStatusDoesNotClobberMetadata(t *testing.T) {
+	svc, repo, _ := newTestService()
+	ctx := context.Background()
+	repo.data["d1"] = &Document{ID: "d1", Title: "original", Summary: "keep me", CreatedBy: "alice", Status: StatusPending}
+
+	if err := svc.MarkStatus(ctx, "d1", StatusReady); err != nil {
+		t.Fatalf("MarkStatus: %v", err)
+	}
+	got := repo.data["d1"]
+	if got.Status != StatusReady {
+		t.Fatalf("status = %q, want ready", got.Status)
+	}
+	if got.Title != "original" || got.Summary != "keep me" {
+		t.Fatalf("MarkStatus clobbered metadata: %+v", got)
+	}
+
+	if err := svc.MarkStatus(ctx, "missing", StatusReady); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("MarkStatus on missing doc: err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestRequeuePending enqueues exactly the documents still in StatusPending.
+func TestRequeuePending(t *testing.T) {
+	svc, repo, _ := newTestService()
+	idx := svc.indexer.(*fakeIndexer)
+	repo.data["p1"] = &Document{ID: "p1", Status: StatusPending}
+	repo.data["p2"] = &Document{ID: "p2", Status: StatusPending}
+	repo.data["r1"] = &Document{ID: "r1", Status: StatusReady}
+
+	svc.RequeuePending(context.Background())
+
+	if len(idx.ids) != 2 {
+		t.Fatalf("enqueued %v, want the 2 pending IDs", idx.ids)
+	}
+	for _, id := range idx.ids {
+		if id != "p1" && id != "p2" {
+			t.Fatalf("unexpected enqueued id %q", id)
+		}
 	}
 }

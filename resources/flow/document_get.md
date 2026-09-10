@@ -1,36 +1,35 @@
-[← Back to Master Flow Catalog](../FLOW.md)
+[← Back to the flow index](../FLOW.md)
 
-# Flow: Get Document Details (`GET /api/documents/{id}`)
+# Flow: Get one document (`GET /api/documents/{id}`)
 
-This document explains the document retrieval flow in **`godocs`**, showcasing the Cache-Aside pattern and thread-safe in-memory caching.
+Returns a single document's metadata. Shows the **cache-aside** pattern: check an
+in-memory cache first, fall back to the database, then fill the cache.
 
 ---
 
-## 1. Overview & Endpoint Contract
+## 1. Contract
 
-- **HTTP Method & Path**: `GET /api/documents/{id}`
-- **Authentication Required**: Yes (`session_id` cookie via `auth.RequireAuth`)
-- **Caching Mechanism**: Thread-safe in-memory generic cache (`cache.TTL[string, *Document]`, default TTL: 60s)
-- **Response Content-Type**: `application/json`
+- **Method & path**: `GET /api/documents/{id}`
+- **Auth**: required (`godocs_session` cookie)
+- **Cache**: `cache.TTL[string, *Document]`, entries live `APP_CACHE_TTL_SEC` (default 60s)
+- **Response**: JSON (same shape as one item from the list endpoint)
 
-### Request Example
 ```http
-GET /api/documents/0191c49b-89ef-73a2-97b1-b92e316a1b22 HTTP/1.1
-Cookie: session_id=0191c49b-73a2-71c1-90a8-a5b8b6e680a1
+GET /api/documents/9f1c0b7a5e2d4c8b6a3f1e0d9c8b7a6f HTTP/1.1
+Cookie: godocs_session=<token>
 ```
 
-### Response Payload (`200 OK`)
 ```json
 {
-  "id": "0191c49b-89ef-73a2-97b1-b92e316a1b22",
-  "title": "Quarterly Financial Report",
-  "summary": "Q3 balance sheets and cash flow projections",
+  "id": "9f1c0b7a5e2d4c8b6a3f1e0d9c8b7a6f",
+  "title": "Quarterly Report",
+  "summary": "Q3 numbers",
   "file_name": "q3_report.pdf",
-  "file_size": 2048576,
+  "size_bytes": 2048576,
   "mime_type": "application/pdf",
   "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "status": "ready",
-  "created_by": "0191c49b-73a2-71c1-90a8-a5b8b6e680a1",
+  "created_by": "3f9a2b7c1d8e4f0a6b5c9d2e7f1a0b3c",
   "created_at": "2026-09-10T10:15:00Z",
   "updated_at": "2026-09-10T10:15:30Z"
 }
@@ -38,66 +37,62 @@ Cookie: session_id=0191c49b-73a2-71c1-90a8-a5b8b6e680a1
 
 ---
 
-## 2. Sequence Diagram
+## 2. Sequence
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as Authenticated Client
-    participant Auth as auth.RequireAuth
-    participant Handler as document.Handler.get
-    participant Svc as document.Service.Get
-    participant Cache as cache.TTL (In-Memory)
-    participant Repo as db.DocumentRepo
-    participant DB as SQLite DB
+    actor Client
+    participant MW as auth.RequireAuth
+    participant H as document.Handler.get
+    participant S as document.Service.Get
+    participant C as cache.TTL
+    participant R as db.DocumentRepo
+    participant DB as SQLite
 
-    Client->>Auth: GET /api/documents/{id}
-    Auth->>Auth: Validate session cookie
-    Auth->>Handler: Forward request
+    Client->>MW: GET /api/documents/{id}
+    MW->>H: forward (with *User in ctx)
+    H->>S: Get(ctx, id, owner)
 
-    Handler->>Handler: id = r.PathValue("id")
-    Handler->>Svc: Get(ctx, id)
-
-    Note over Svc,Cache: Step 1: In-Memory Cache Lookup
-    Svc->>Cache: Get(id) [RLock]
-    alt Cache Hit (Not Expired)
-        Cache-->>Svc: *Document, true
-        Svc-->>Handler: Cached *Document
-        Handler-->>Client: 200 OK (Served from RAM)
-    else Cache Miss or Expired
-        Cache-->>Svc: nil, false
+    S->>C: Get(id) under RLock
+    alt hit
+        C-->>S: *Document
+    else miss
+        S->>R: GetByID(ctx, id)
+        R->>DB: SELECT <cols> FROM documents WHERE id = ?
+        alt no row
+            R-->>S: ErrNotFound
+            S-->>H: ErrNotFound
+            H-->>Client: 404 not_found
+        end
+        R-->>S: *Document
+        S->>C: Set(id, doc) under Lock, expires in 60s
     end
 
-    Note over Svc,DB: Step 2: Database Fallback
-    Svc->>Repo: GetByID(ctx, id)
-    Repo->>DB: SELECT * FROM documents WHERE id = ?
-    alt Document Not Found
-        DB-->>Repo: sql.ErrNoRows
-        Repo-->>Svc: ErrNotFound
-        Svc-->>Handler: ErrNotFound
-        Handler-->>Client: 404 Not Found (code: "not_found")
-    else Document Found
-        DB-->>Repo: Document Row
-        Repo-->>Svc: *Document
+    S->>S: doc.CreatedBy == owner?
+    alt not the owner
+        S-->>H: ErrNotFound
+        H-->>Client: 404 not_found
     end
-
-    Note over Svc,Cache: Step 3: Populate Cache
-    Svc->>Cache: Set(id, doc) [Lock, expires_at = now + 60s]
-    Svc-->>Handler: *Document
-    Handler-->>Client: 200 OK (Served from Database)
+    S-->>H: *Document
+    H-->>Client: 200 OK
 ```
 
 ---
 
-## 3. Step-by-Step Processing Pipeline
+## 3. Step by step
 
-1. **Path Parameter Resolution**:
-   Go 1.22+ standard routing extracts the `{id}` wildcard via `r.PathValue("id")`.
-2. **Cache Read (`RLock`)**:
-   Queries `cache.Cache.Get(id)`. Multiple concurrent readers can query simultaneously without contention.
-3. **Database Read**:
-   If the key does not exist or has expired, queries the SQLite `documents` table by primary key.
-4. **Cache Backfill (`Lock`)**:
-   Populates the cache entry with an expiration timestamp (`time.Now().Add(cfg.CacheTTL)`).
-5. **JSON Serialization**:
-   Emits the full document metadata object.
+1. **Path value.** Go 1.22 routing gives you `r.PathValue("id")` for the `{id}`
+   segment in the pattern `GET /api/documents/{id}`.
+2. **Cache first.** `cache.TTL.Get` takes a read lock (`RLock`), so many
+   `GET`s run in parallel. A hit returns the pointer straight away.
+3. **Database on a miss.** `GetByID` maps `sql.ErrNoRows` to the domain's
+   `ErrNotFound`, which the handler renders as `404`.
+4. **Fill the cache** under a write lock, with an expiry of `now + TTL`.
+5. **Ownership check comes last**, after the document is in hand (from cache or
+   DB). If `created_by` isn't the caller, return `ErrNotFound` — same `404` as a
+   missing document, so you can't probe for ids that exist.
+
+> The cache is keyed by id only, and a document has exactly one owner, so a
+> cached entry can't leak to another user — the ownership check still runs on
+> every request, hit or miss.

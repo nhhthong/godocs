@@ -34,8 +34,8 @@
     }
   </script>
 
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Lucide Icons (pinned; @latest can break the UI without warning). CDN is fine for this demo. -->
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
 
   <style>
     /* Custom scrollbar */
@@ -803,17 +803,12 @@
       const email = (formData.get('email') || '').toString().trim();
       const password = (formData.get('password') || '').toString();
 
-      // Additional validation on Registration
+      // Additional validation on Registration.
+      // The server only enforces a minimum length of 8; the strength checklist above is
+      // advisory guidance, not a hard gate, so keep this in sync with the backend.
       if (authMode === 'register') {
-        const rules = evaluatePassword(password);
-        if (!rules.length) {
+        if (password.length < 8) {
           authAlertMsg.textContent = 'Password must be at least 8 characters.';
-          authAlert.classList.remove('hidden');
-          authPasswordInput.focus();
-          return;
-        }
-        if (!rules.cases || !rules.number) {
-          authAlertMsg.textContent = 'Password must contain uppercase, lowercase, and at least one number.';
           authAlert.classList.remove('hidden');
           authPasswordInput.focus();
           return;
@@ -852,14 +847,15 @@
           await refreshSession();
         }
       } else {
-        let msg = body?.error?.message;
-        if (!msg) {
-          msg = authMode === 'login' ? 'Invalid email or password' : 'Registration failed';
-        }
-        if (msg.includes('mat khau toi thieu 8 ky tu') || msg.includes('weak password')) {
+        const code = body?.error?.code;
+        let msg = body?.error?.message
+          || (authMode === 'login' ? 'Invalid email or password' : 'Registration failed');
+        if (code === 'weak_password') {
           msg = 'Password is too weak (minimum 8 characters).';
-        } else if (msg.includes('email da duoc dang ky') || msg.includes('email taken')) {
+        } else if (code === 'email_taken') {
           msg = 'This email is already registered. Please sign in.';
+        } else if (code === 'bad_credentials') {
+          msg = 'Invalid email or password.';
         }
         authAlertMsg.textContent = msg;
         authAlert.classList.remove('hidden');

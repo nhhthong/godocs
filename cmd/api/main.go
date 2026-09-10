@@ -90,10 +90,11 @@ func run() error {
 
 	// Explicit manual wiring (devoid of reflection-heavy DI containers) guarantees clear dependency topology.
 	var svc *document.Service
-	idx := worker.NewIndexer(nil, log, 128)
+	idx := worker.NewIndexer(nil, log, cfg.QueueSize)
 	svc = document.NewService(repo, blobAdapter{blobs}, docCache, idx, log, cfg.MaxUpload)
 	idx.SetService(svc) // breaks the circular initialization between service and worker
 	idx.Start(cfg.Workers)
+	svc.RequeuePending(ctx) // recover documents left in "pending" by a queue overflow or prior crash
 
 	docHandler := document.NewHandler(svc, fileAdapter{blobs}, cfg.MaxUpload)
 
@@ -106,8 +107,8 @@ func run() error {
 	mux.Handle("/api/auth/", httpx.RateLimit(1, 5)(authHandler.Routes()))
 
 	// /api/documents*: Authenticated endpoints. RequireAuth guards the entire document subtree.
-	// Note: Multitenancy ownership filtering is currently global; authenticated users share visibility.
-	// To implement granular isolation, introduce an owner_id column and filter via auth.UserFrom(ctx).
+	// Ownership is enforced per user: handlers pass the caller's ID (auth.UserFrom) down to the
+	// service/repo, which filter every read and mutation on documents.created_by.
 	protected := authSvc.RequireAuth(docHandler.Routes())
 	mux.Handle("/api/documents", protected)  // Go 1.22 mux requires exact pattern without trailing slash
 	mux.Handle("/api/documents/", protected) // ...as well as trailing slash pattern for subtree matching
@@ -228,20 +229,24 @@ func (f fileAdapter) Open(path string) (io.ReadSeekCloser, error) {
 }
 
 // initLogger configures a structured slog.Logger streaming concurrently to standard output
-// and a daily-rotated log file in logDir (e.g. log/2026-09-10.log).
+// and to a log file in logDir named log/YYYY-MM-DD.log. The date is resolved once at
+// startup: the process keeps writing to that file for its whole lifetime and does NOT
+// roll over at midnight. If you need true daily rotation, run under logrotate or restart
+// the process daily.
+// ponytail: startup-dated file, no in-process rotation.
 // If logDir is empty or equals "stdout", the logger emits solely to the terminal.
 func initLogger(logDir string) (*slog.Logger, func(), error) {
 	writers := []io.Writer{os.Stdout}
 	closeFn := func() {}
 
 	if logDir != "" && logDir != "stdout" {
-		if err := os.MkdirAll(logDir, 0755); err != nil {
+		if err := os.MkdirAll(logDir, 0o750); err != nil {
 			return nil, nil, fmt.Errorf("failed to create log directory: %w", err)
 		}
 
-		// Naming convention follows standard ISO daily rotation: log/YYYY-MM-DD.log
+		// Date resolved once at startup; see initLogger doc comment — no midnight rollover.
 		logPath := filepath.Join(logDir, time.Now().Format("2006-01-02")+".log")
-		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to open log file: %w", err)
 		}

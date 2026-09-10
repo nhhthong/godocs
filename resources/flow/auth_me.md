@@ -1,21 +1,21 @@
-[← Back to Master Flow Catalog](../FLOW.md)
+[← Back to the flow index](../FLOW.md)
 
-# Flow: Current User Profile (`GET /api/auth/me`)
+# Flow: Current user (`GET /api/auth/me`)
 
-This document describes how the current authenticated user identity is verified and retrieved in **`godocs`**.
+Returns the profile of whoever is signed in. The frontend calls it on page load
+to decide whether to show the login form or the dashboard.
 
 ---
 
-## 1. Overview & Endpoint Contract
+## 1. Contract
 
-- **HTTP Method & Path**: `GET /api/auth/me`
-- **Authentication Required**: Yes (`session_id` cookie)
-- **Response Content-Type**: `application/json`
+- **Method & path**: `GET /api/auth/me`
+- **Auth**: required — `godocs_session` cookie
+- **Response**: JSON
 
-### Response Body (`200 OK`)
 ```json
 {
-  "id": "0191c49b-73a2-71c1-90a8-a5b8b6e680a1",
+  "id": "3f9a2b7c1d8e4f0a6b5c9d2e7f1a0b3c",
   "email": "learner@example.com",
   "created_at": "2026-09-10T10:00:00Z"
 }
@@ -23,63 +23,66 @@ This document describes how the current authenticated user identity is verified 
 
 ---
 
-## 2. Sequence Diagram
+## 2. Sequence
+
+`/me` is wrapped in the same `auth.RequireAuth` middleware the document routes
+use, so by the time `handler.me` runs, the session is already validated and the
+`*User` is in the request context. The handler just reads it out.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as HTTP Client / Browser
-    participant Handler as auth.Handler.me
-    participant Svc as auth.Service.Authenticate
-    participant Repo as db.AuthRepo
-    participant DB as SQLite DB
+    actor Client
+    participant MW as auth.RequireAuth
+    participant S as auth.Service.Authenticate
+    participant R as db.AuthRepo
+    participant DB as SQLite
+    participant H as auth.Handler.me
 
-    Client->>Handler: GET /api/auth/me (Cookie: session_id=<token>)
+    Client->>MW: GET /api/auth/me (Cookie: godocs_session)
 
-    Handler->>Handler: r.Cookie("session_id")
-    alt Missing Cookie
-        Handler-->>Client: 401 Unauthorized (code: "unauthorized", message: "authentication required")
+    alt no cookie
+        MW-->>Client: 401 unauthorized ("authentication required")
     end
 
-    Handler->>Svc: Authenticate(ctx, token)
-    Svc->>Repo: GetSession(ctx, token)
-    Repo->>DB: SELECT token, user_id, expires_at FROM sessions WHERE token = ?
-    alt Session Not Found
-        DB-->>Repo: sql.ErrNoRows
-        Repo-->>Svc: ErrNoSession
-        Svc-->>Handler: ErrNoSession
-        Handler-->>Client: 401 Unauthorized (code: "unauthorized", message: "invalid or expired session")
-    else Session Found
-        DB-->>Repo: Session Record
-        Repo-->>Svc: Session
+    MW->>S: Authenticate(ctx, token)
+    S->>R: FindSession(ctx, token)
+    R->>DB: SELECT ... FROM sessions WHERE token = sha256(token)
+    alt not found
+        R-->>S: ErrNoSession
+        S-->>MW: ErrNoSession
+        MW-->>Client: 401 unauthorized ("invalid or expired session")
     end
 
-    Note over Svc: Expiration Verification
-    Svc->>Svc: Verify expires_at > time.Now()
-    alt Session Expired
-        Svc-->>Handler: ErrNoSession
-        Handler-->>Client: 401 Unauthorized (code: "unauthorized")
+    S->>S: expires_at > now?
+    alt expired
+        S->>R: DeleteSession(ctx, token)
+        S-->>MW: ErrNoSession
+        MW-->>Client: 401 (cookie also cleared)
     end
 
-    Svc->>Repo: GetUserByID(ctx, session.UserID)
-    Repo->>DB: SELECT id, email, created_at FROM users WHERE id = ?
-    DB-->>Repo: User Record
-    Repo-->>Svc: User
-    Svc-->>Handler: User Profile
-    Handler-->>Client: 200 OK {id, email, created_at}
+    S->>R: FindUserByID(ctx, session.UserID)
+    R->>DB: SELECT id, email, created_at FROM users WHERE id = ?
+    R-->>S: *User
+    S-->>MW: *User
+
+    MW->>MW: put *User in the context, call next
+    MW->>H: ServeHTTP
+    H->>H: user, _ := auth.UserFrom(ctx)
+    H-->>Client: 200 OK {id, email, created_at}
 ```
 
 ---
 
-## 3. Step-by-Step Processing Pipeline
+## 3. Step by step
 
-1. **Cookie Extraction**:
-   Reads `session_id` from the HTTP request headers. If absent, immediately returns `401 Unauthorized`.
-2. **Session Lookup**:
-   Queries SQLite `sessions` table for the matching token string.
-3. **Validity Check**:
-   Compares `expires_at` against the current UTC timestamp `time.Now()`. Expired sessions return `401`.
-4. **User Profile Retrieval**:
-   Executes `GetUserByID` to load the current profile fields (`id`, `email`, `created_at`).
-5. **Response Serialization**:
-   Returns the user domain entity formatted as JSON.
+1. **`RequireAuth` reads the cookie.** No cookie → `401` right away.
+2. **Find the session** by `sha256(token)`. No row → `401`.
+3. **Check expiry.** If `expires_at` is in the past, delete the stale row, clear
+   the client's cookie, and return `401`.
+4. **Load the user** with `FindUserByID`. (If the user was deleted but a session
+   row lingered, this also returns `401`.)
+5. **Middleware stores the `*User`** in the context with `context.WithValue` and
+   calls the next handler.
+6. **`handler.me`** pulls it back out with `auth.UserFrom(ctx)` and serialises it.
+   No cookie parsing in the handler — that logic lives in one place.

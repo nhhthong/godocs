@@ -29,7 +29,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/register", h.register)
 	mux.HandleFunc("POST /api/auth/login", h.login)
 	mux.HandleFunc("POST /api/auth/logout", h.logout)
-	mux.HandleFunc("GET /api/auth/me", h.me)
+	// /me reuses the same session gate as the document routes instead of re-checking the cookie by hand.
+	mux.Handle("GET /api/auth/me", h.svc.RequireAuth(http.HandlerFunc(h.me)))
 	return mux
 }
 
@@ -77,15 +78,11 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 // me returns the profile of the authenticated caller.
+// RequireAuth has already validated the session and put the user in the context.
 func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(cookieName)
-	if err != nil {
+	u, ok := UserFrom(r.Context())
+	if !ok {
 		httpx.Error(w, http.StatusUnauthorized, "unauthorized", "authentication required", nil)
-		return
-	}
-	u, err := h.svc.Authenticate(r.Context(), c.Value)
-	if err != nil {
-		httpx.Error(w, http.StatusUnauthorized, "unauthorized", "invalid or expired session", nil)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, u)

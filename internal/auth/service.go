@@ -6,6 +6,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -75,10 +76,14 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, *Se
 	email = normalizeEmail(email)
 
 	u, hash, err := s.repo.FindUserByEmail(ctx, email)
-	if err != nil {
+	if errors.Is(err, ErrBadCredentials) {
 		// Non-existent account: execute dummy bcrypt verification to neutralize timing side-channels.
 		checkPassword(string(dummyHash), password)
 		return nil, nil, ErrBadCredentials
+	}
+	if err != nil {
+		// A genuine infrastructure failure must surface as 500, not as "bad credentials".
+		return nil, nil, err
 	}
 	if !checkPassword(hash, password) {
 		return nil, nil, ErrBadCredentials

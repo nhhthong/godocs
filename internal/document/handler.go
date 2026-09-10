@@ -86,12 +86,21 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusCreated, doc)
 }
 
+// ownerID returns the authenticated user's ID. Document routes are always mounted
+// behind auth.RequireAuth, so a user is guaranteed to be present.
+func ownerID(r *http.Request) string {
+	if u, ok := auth.UserFrom(r.Context()); ok {
+		return u.ID
+	}
+	return ""
+}
+
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
 
-	items, total, err := h.svc.List(r.Context(), ListFilter{Query: q.Get("q"), Limit: limit, Offset: offset})
+	items, total, err := h.svc.List(r.Context(), ListFilter{Query: q.Get("q"), Owner: ownerID(r), Limit: limit, Offset: offset})
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -100,7 +109,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
-	doc, err := h.svc.Get(r.Context(), r.PathValue("id"))
+	doc, err := h.svc.Get(r.Context(), r.PathValue("id"), ownerID(r))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -109,7 +118,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
-	doc, err := h.svc.Get(r.Context(), r.PathValue("id"))
+	doc, err := h.svc.Get(r.Context(), r.PathValue("id"), ownerID(r))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -135,7 +144,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "invalid_json", err.Error(), nil)
 		return
 	}
-	doc, err := h.svc.Update(r.Context(), r.PathValue("id"), in)
+	doc, err := h.svc.Update(r.Context(), r.PathValue("id"), ownerID(r), in)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -144,7 +153,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Delete(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.svc.Delete(r.Context(), r.PathValue("id"), ownerID(r)); err != nil {
 		writeErr(w, err)
 		return
 	}

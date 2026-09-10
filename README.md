@@ -109,8 +109,8 @@ flowchart LR
 
 ### 2. Authentication and Cookies
 In [`internal/auth/`](internal/auth/):
-- Passwords are encrypted using Argon2id / bcrypt via `golang.org/x/crypto`.
-- Successful logins generate a high-entropy session token stored in SQLite and sent back as an `HttpOnly`, `SameSite=Lax` cookie.
+- Passwords are hashed using bcrypt (`bcrypt.DefaultCost`) via `golang.org/x/crypto`.
+- Successful logins generate a high-entropy (256-bit) session token; only its SHA-256 hash is stored in SQLite, while the raw token is sent back as an `HttpOnly`, `SameSite=Lax` cookie.
 - Middleware extracts the cookie on protected endpoints and attaches the authenticated user to the request `context.Context`.
 - Failed logins run a dummy hash calculation so attackers cannot measure response time differences to discover registered emails.
 
@@ -134,7 +134,7 @@ flowchart LR
 ### 4. Database Access with Pure Go SQLite
 In [`internal/db/`](internal/db/):
 - Uses `database/sql` with `modernc.org/sqlite`, a CGO-free driver that compiles cleanly on Linux, macOS, and Windows without external toolchains.
-- Schema migrations run automatically on startup from simple `.sql` files in [`migrations/`](migrations/).
+- Schema migrations run automatically on startup from simple `.sql` files in [`migrations/`](migrations/); each file is applied once inside a transaction and recorded in a `schema_migrations` table.
 - Configures SQLite write-ahead logging (WAL) and connection limits for safe concurrency.
 
 ### 5. Standard Library Routing (Go 1.22+)

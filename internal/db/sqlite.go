@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,9 +25,14 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
-	pool.SetMaxOpenConns(25)                  // Cap concurrent active connections
-	pool.SetMaxIdleConns(25)                  // Retain idle pool to avoid repeated connection handshakes
-	pool.SetConnMaxLifetime(30 * time.Minute) // Periodically refresh connections to prevent stale handles
+	// SQLite allows only one writer at a time. With many pooled connections, concurrent
+	// writes pile up on busy_timeout and tail latency spikes. A single connection
+	// serializes all access, which is more than enough for this workload (small DB,
+	// read path is cached) and removes SQLITE_BUSY entirely.
+	// ponytail: single conn; add a separate read-only pool if read throughput ever matters.
+	pool.SetMaxOpenConns(1)
+	pool.SetMaxIdleConns(1)
+	pool.SetConnMaxLifetime(30 * time.Minute) // Periodically refresh to prevent stale handles
 
 	ping, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -36,11 +42,12 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 	return pool, nil
 }
 
-// Migrate executes all *.sql scripts discovered in the target directory in lexicographical order
-// (001_init.sql, 002_auth.sql, etc.).
-//
-// Schema definitions utilize idempotent DDL constructs ("CREATE TABLE IF NOT EXISTS"),
-// ensuring repeated executions produce predictable results.
+// Migrate applies every *.sql script in dir, in lexicographical order (001_init.sql,
+// 002_auth.sql, ...), exactly once. Applied filenames are recorded in a
+// schema_migrations table and skipped on subsequent runs, so a script may safely
+// contain non-idempotent statements (ALTER TABLE, data backfills). Each script plus
+// its bookkeeping row commits in a single transaction: a failure rolls back cleanly
+// and the script is retried on the next start.
 func Migrate(ctx context.Context, pool *sql.DB, dir string) error {
 	files, err := filepath.Glob(filepath.Join(dir, "*.sql"))
 	if err != nil {
@@ -51,13 +58,45 @@ func Migrate(ctx context.Context, pool *sql.DB, dir string) error {
 	}
 	sort.Strings(files) // Numerical prefix naming guarantees correct chronological sequencing
 
+	if _, err := pool.ExecContext(ctx,
+		`CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)`,
+	); err != nil {
+		return fmt.Errorf("db: create schema_migrations: %w", err)
+	}
+
 	for _, f := range files {
+		name := filepath.Base(f)
+
+		var one int
+		err := pool.QueryRowContext(ctx, `SELECT 1 FROM schema_migrations WHERE name = ?`, name).Scan(&one)
+		if err == nil {
+			continue // already applied
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("db: check migration %s: %w", name, err)
+		}
+
 		b, err := os.ReadFile(f)
 		if err != nil {
-			return fmt.Errorf("db: failed reading migration %s: %w", filepath.Base(f), err)
+			return fmt.Errorf("db: failed reading migration %s: %w", name, err)
 		}
-		if _, err := pool.ExecContext(ctx, string(b)); err != nil {
-			return fmt.Errorf("db: execution failure in migration %s: %w", filepath.Base(f), err)
+
+		tx, err := pool.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("db: begin migration %s: %w", name, err)
+		}
+		if _, err := tx.ExecContext(ctx, string(b)); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("db: execution failure in migration %s: %w", name, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`, name, time.Now().Unix(),
+		); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("db: record migration %s: %w", name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("db: commit migration %s: %w", name, err)
 		}
 	}
 	return nil

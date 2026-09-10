@@ -1,41 +1,40 @@
-[← Back to Master Flow Catalog](../FLOW.md)
+[← Back to the flow index](../FLOW.md)
 
-# Flow: Document Listing & Search (`GET /api/documents`)
+# Flow: List / search documents (`GET /api/documents`)
 
-This document details the paginated query and search flow for documents in **`godocs`**.
+Returns a page of the caller's documents, newest first, with an optional text
+search over `title` and `summary`.
 
 ---
 
-## 1. Overview & Endpoint Contract
+## 1. Contract
 
-- **HTTP Method & Path**: `GET /api/documents`
-- **Authentication Required**: Yes (`session_id` cookie via `auth.RequireAuth`)
-- **Query Parameters**:
-  - `q` (string, optional): Search query matching `title` or `summary`.
-  - `limit` (integer, optional): Number of records per page (default: 20, max: 100).
-  - `offset` (integer, optional): Pagination offset (default: 0).
-- **Response Content-Type**: `application/json`
+- **Method & path**: `GET /api/documents`
+- **Auth**: required (`godocs_session` cookie)
+- **Query params**:
+  - `q` — optional search term (matched against `title` and `summary`)
+  - `limit` — page size, default 20, clamped to 1–100
+  - `offset` — how many rows to skip, default 0
+- **Response**: JSON
 
-### Request Example
 ```http
-GET /api/documents?q=financial&limit=10&offset=0 HTTP/1.1
-Cookie: session_id=0191c49b-73a2-71c1-90a8-a5b8b6e680a1
+GET /api/documents?q=report&limit=10&offset=0 HTTP/1.1
+Cookie: godocs_session=<token>
 ```
 
-### Response Payload (`200 OK`)
 ```json
 {
   "items": [
     {
-      "id": "0191c49b-89ef-73a2-97b1-b92e316a1b22",
-      "title": "Quarterly Financial Report",
-      "summary": "Q3 balance sheets and cash flow projections",
+      "id": "9f1c0b7a5e2d4c8b6a3f1e0d9c8b7a6f",
+      "title": "Quarterly Report",
+      "summary": "Q3 numbers",
       "file_name": "q3_report.pdf",
-      "file_size": 2048576,
+      "size_bytes": 2048576,
       "mime_type": "application/pdf",
       "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "status": "ready",
-      "created_by": "0191c49b-73a2-71c1-90a8-a5b8b6e680a1",
+      "created_by": "3f9a2b7c1d8e4f0a6b5c9d2e7f1a0b3c",
       "created_at": "2026-09-10T10:15:00Z",
       "updated_at": "2026-09-10T10:15:30Z"
     }
@@ -44,61 +43,63 @@ Cookie: session_id=0191c49b-73a2-71c1-90a8-a5b8b6e680a1
 }
 ```
 
+`total` is the count of *matching* rows (ignoring `limit`/`offset`), so the
+frontend can render pagination.
+
 ---
 
-## 2. Sequence Diagram
+## 2. Sequence
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as Authenticated Client
-    participant Auth as auth.RequireAuth
-    participant Handler as document.Handler.list
-    participant Svc as document.Service.List
-    participant Repo as db.DocumentRepo
-    participant DB as SQLite DB
+    actor Client
+    participant MW as auth.RequireAuth
+    participant H as document.Handler.list
+    participant S as document.Service.List
+    participant R as db.DocumentRepo
+    participant DB as SQLite
 
-    Client->>Auth: GET /api/documents?q=report&limit=20&offset=0
-    Auth->>Auth: Validate session cookie
-    Auth->>Handler: Forward request
+    Client->>MW: GET /api/documents?q=report&limit=20
+    MW->>MW: validate cookie, put *User in ctx
+    MW->>H: forward
 
-    Handler->>Handler: Parse query params (q, limit, offset)
-    Handler->>Handler: Apply sanity clamps (limit > 0 && <= 100, offset >= 0)
-    Handler->>Svc: List(ctx, ListFilter{Query, Limit, Offset})
+    H->>H: parse q, limit, offset
+    H->>H: owner = auth.UserFrom(ctx).ID
+    H->>S: List(ctx, {Query:q, Owner:owner, Limit, Offset})
+    S->>S: clamp limit to 1–100, offset to >= 0
+    S->>R: List(ctx, filter)
 
-    Note over Svc,Repo: SQL Wildcard Sanitization
-    Svc->>Repo: List(ctx, filter)
-    Repo->>Repo: Escape LIKE special characters: % -> \% and _ -> \_
-    
-    Note over Repo,DB: Paginated Query & Total Count
-    Repo->>DB: SELECT COUNT(*) FROM documents WHERE title LIKE ? OR summary LIKE ?
-    DB-->>Repo: total = 42
-    
-    Repo->>DB: SELECT * FROM documents WHERE title LIKE ? OR summary LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?
-    DB-->>Repo: []Document rows
-    
-    Repo-->>Svc: ([]Document, total, nil)
-    Svc-->>Handler: ([]Document, total)
-    Handler-->>Client: 200 OK {"items": [...], "total": 42}
+    R->>R: build WHERE from the filter:<br/>created_by = ?  [+ (title LIKE ? OR summary LIKE ?) ESCAPE '\\']
+    R->>DB: SELECT COUNT(*) FROM documents <WHERE>
+    DB-->>R: total
+    R->>DB: SELECT <cols> FROM documents <WHERE> ORDER BY created_at DESC LIMIT ? OFFSET ?
+    DB-->>R: rows
+    R-->>S: (items, total, nil)
+    S-->>H: (items, total)
+    H-->>Client: 200 OK {"items": [...], "total": N}
 ```
 
 ---
 
-## 3. Step-by-Step Processing Pipeline
+## 3. Step by step
 
-1. **Parameter Sanitization & Defaults**:
-   - `limit`: If $\le 0$, defaults to `20`. If $> 100$, clamped to `100`.
-   - `offset`: If $< 0$, defaults to `0`.
-2. **LIKE Wildcard Escaping**:
-   User input strings can inadvertently contain SQL wildcard symbols `%` and `_`. [`internal/db/repo.go`](file:///home/vnjdev/projects/godocs/internal/db/repo.go) escapes them:
+1. **Clamp the paging params.** `limit <= 0` or `> 100` becomes 20; negative
+   `offset` becomes 0. Bad input can't ask for a huge page.
+2. **Scope to the owner.** The handler passes the caller's id as `Owner`, and the
+   repo adds `created_by = ?` to every query. You only ever see your own
+   documents; there is no way to page through someone else's.
+3. **Escape `LIKE` wildcards.** In SQL `LIKE`, `%` and `_` are wildcards. If a
+   user searches for `50%`, you don't want it to match everything. The repo runs
+   the term through:
+
    ```go
-   escaped := strings.ReplaceAll(q, `\`, `\\`)
-   escaped = strings.ReplaceAll(escaped, `%`, `\%`)
-   escaped = strings.ReplaceAll(escaped, `_`, `\_`)
-   pattern := "%" + escaped + "%"
+   strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(term)
    ```
-   This guarantees users search for literal `%` or `_` characters without altering the query grammar.
-3. **Total Count Evaluation**:
-   Executes `SELECT COUNT(*)` with the active filter to provide accurate total item counts for pagination controls.
-4. **Data Retrieval**:
-   Returns the slice of documents ordered chronologically (`created_at DESC`).
+
+   and the query uses `LIKE ? ESCAPE '\'`, so those characters match literally.
+4. **Count, then fetch.** One `SELECT COUNT(*)` with the same `WHERE` for
+   `total`, then the page itself ordered by `created_at DESC`.
+5. **Close the rows.** The repo `defer rows.Close()` and checks `rows.Err()`
+   after the loop — skipping either is a classic `database/sql` bug that leaks
+   connections or hides errors.

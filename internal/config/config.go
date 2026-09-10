@@ -23,6 +23,7 @@ type Config struct {
 	MaxUpload   int64         // Maximum permitted upload size per file (in bytes)
 	CacheTTL    time.Duration // Time-to-live duration for in-memory document caching
 	Workers     int           // Concurrency level for background indexing goroutines
+	QueueSize   int           // Capacity of the background indexing job buffer
 	LogDir      string        // Target directory for log files (empty string or "stdout" outputs solely to stdout)
 
 	// --- Authentication Parameters ---
@@ -46,6 +47,7 @@ func Load() (Config, error) {
 		MaxUpload:   int64(envInt("APP_MAX_UPLOAD_MB", 25)) << 20,
 		CacheTTL:    time.Duration(envInt("APP_CACHE_TTL_SEC", 60)) * time.Second,
 		Workers:     envInt("APP_WORKERS", 4),
+		QueueSize:   envInt("APP_QUEUE_SIZE", 128),
 		LogDir:      env("APP_LOG_DIR", "log"), // defaults to "log" folder; set to empty or "stdout" for terminal only
 
 		SessionTTL:   time.Duration(envInt("APP_SESSION_TTL_HOURS", 168)) * time.Hour, // 168 hours = 7 days
@@ -59,6 +61,9 @@ func Load() (Config, error) {
 
 	if c.Workers < 1 {
 		return c, fmt.Errorf("config: APP_WORKERS must be >= 1")
+	}
+	if c.QueueSize < 1 {
+		return c, fmt.Errorf("config: APP_QUEUE_SIZE must be >= 1")
 	}
 	if c.MaxUpload <= 0 {
 		return c, fmt.Errorf("config: APP_MAX_UPLOAD_MB must be > 0")

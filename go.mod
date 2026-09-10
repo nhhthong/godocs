@@ -3,7 +3,7 @@ module github.com/you/godocs
 go 1.22
 
 require (
-	golang.org/x/crypto v0.31.0 // Argon2id and cryptographic password hashing routines
+	golang.org/x/crypto v0.31.0 // bcrypt password hashing
 	modernc.org/sqlite v1.34.4 // Pure Go SQLite driver (CGO-free)
 )
 

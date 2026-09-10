@@ -7,10 +7,10 @@ package document
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -25,6 +25,7 @@ type Repository interface {
 	GetByID(ctx context.Context, id string) (*Document, error)
 	List(ctx context.Context, f ListFilter) ([]Document, int, error)
 	Update(ctx context.Context, d *Document) error
+	SetStatus(ctx context.Context, id string, st Status, updatedAt time.Time) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -56,9 +57,15 @@ type Indexer interface {
 // ListFilter specifies query parameters for paginated document searches.
 type ListFilter struct {
 	Query  string
+	Owner  string // Restricts results to documents created by this user ID; empty means no restriction.
+	Status Status // Restricts results to this processing status; empty means any.
 	Limit  int
 	Offset int
 }
+
+// owns reports whether owner is allowed to access d.
+// An empty owner (e.g. the background worker) bypasses the check.
+func owns(d *Document, owner string) bool { return owner == "" || d.CreatedBy == owner }
 
 // Service coordinates document domain logic, storage validation, and cache synchronization.
 type Service struct {
@@ -72,17 +79,25 @@ type Service struct {
 	allowMime map[string]bool
 }
 
+// extByMime maps every accepted (sniffed) MIME type to the extension used for the
+// stored file. Its keys are the single source of truth for what uploads are allowed.
+var extByMime = map[string]string{
+	"application/pdf": ".pdf",
+	"image/png":       ".png",
+	"image/jpeg":      ".jpg",
+	"text/plain":      ".txt",
+}
+
 // NewService instantiates a document Service with default allowed MIME types and upload size limits.
 func NewService(repo Repository, blob BlobStore, c Cache, idx Indexer, log *slog.Logger, maxSize int64) *Service {
+	allow := make(map[string]bool, len(extByMime))
+	for m := range extByMime {
+		allow[m] = true
+	}
 	return &Service{
 		repo: repo, blob: blob, cache: c, indexer: idx, log: log,
-		maxSize: maxSize,
-		allowMime: map[string]bool{
-			"application/pdf": true,
-			"image/png":       true,
-			"image/jpeg":      true,
-			"text/plain":      true,
-		},
+		maxSize:   maxSize,
+		allowMime: allow,
 	}
 }
 
@@ -109,7 +124,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Document, error)
 	// Sniff the initial 512 bytes rather than trusting untrusted client Content-Type headers.
 	head := make([]byte, 512)
 	n, err := io.ReadFull(in.File, head)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return nil, fmt.Errorf("read head: %w", err)
 	}
 	head = head[:n]
@@ -130,12 +145,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Document, error)
 	}
 	body := io.MultiReader(bytes.NewReader(head), io.LimitReader(in.File, remain))
 
-	ext := strings.ToLower(filepath.Ext(in.FileName))
-	if exts, _ := mime.ExtensionsByType(mimeType); len(exts) > 0 && ext == "" {
-		ext = exts[0]
-	}
-
-	saved, err := s.blob.Save(ctx, ext, body)
+	// Extension comes from the sniffed MIME type, never the client filename, so an
+	// upload cannot place an arbitrary extension (".php", ".html", ...) on disk.
+	saved, err := s.blob.Save(ctx, extByMime[mimeType], body)
 	if err != nil {
 		return nil, fmt.Errorf("save blob: %w", err)
 	}
@@ -178,15 +190,21 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Document, error)
 }
 
 // Get retrieves a document by ID utilizing a cache-aside pattern.
-func (s *Service) Get(ctx context.Context, id string) (*Document, error) {
-	if d, ok := s.cache.Get(id); ok {
-		return d, nil
+// A non-empty owner restricts access to that user's own documents; a mismatch
+// is reported as ErrNotFound so callers cannot probe for others' document IDs.
+func (s *Service) Get(ctx context.Context, id, owner string) (*Document, error) {
+	d, ok := s.cache.Get(id)
+	if !ok {
+		var err error
+		d, err = s.repo.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		s.cache.Set(id, d)
 	}
-	d, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
+	if !owns(d, owner) {
+		return nil, fmt.Errorf("%w: id=%s", ErrNotFound, id)
 	}
-	s.cache.Set(id, d)
 	return d, nil
 }
 
@@ -208,10 +226,13 @@ type UpdateInput struct {
 }
 
 // Update applies partial modifications to a document entity and invalidates cache entries.
-func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (*Document, error) {
+func (s *Service) Update(ctx context.Context, id, owner string, in UpdateInput) (*Document, error) {
 	d, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if !owns(d, owner) {
+		return nil, fmt.Errorf("%w: id=%s", ErrNotFound, id)
 	}
 	if in.Title != nil {
 		d.Title = strings.TrimSpace(*in.Title)
@@ -231,10 +252,13 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (*Docum
 }
 
 // Delete removes the document record and unlinks its associated binary disk blob.
-func (s *Service) Delete(ctx context.Context, id string) error {
+func (s *Service) Delete(ctx context.Context, id, owner string) error {
 	d, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
+	}
+	if !owns(d, owner) {
+		return fmt.Errorf("%w: id=%s", ErrNotFound, id)
 	}
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
@@ -247,16 +271,32 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 }
 
 // MarkStatus updates the document processing status upon background worker completion.
+// It writes the status column directly (no read-modify-write) so it cannot race a
+// concurrent metadata PATCH.
 func (s *Service) MarkStatus(ctx context.Context, id string, st Status) error {
-	d, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	d.Status = st
-	d.UpdatedAt = time.Now().UTC()
-	if err := s.repo.Update(ctx, d); err != nil {
+	if err := s.repo.SetStatus(ctx, id, st, time.Now().UTC()); err != nil {
 		return err
 	}
 	s.cache.Delete(id)
 	return nil
+}
+
+// RequeuePending re-enqueues every document still in StatusPending. Call it on
+// startup so uploads whose indexing was dropped (queue full, or a crash before
+// processing) are not stranded. Best-effort: enqueue failures are only logged.
+func (s *Service) RequeuePending(ctx context.Context) {
+	const batch = 500
+	docs, _, err := s.repo.List(ctx, ListFilter{Status: StatusPending, Limit: batch})
+	if err != nil {
+		s.log.Error("requeue pending: list failed", "err", err)
+		return
+	}
+	for i := range docs {
+		if !s.indexer.Enqueue(docs[i].ID) {
+			s.log.Warn("requeue pending: queue full", "id", docs[i].ID)
+		}
+	}
+	if len(docs) > 0 {
+		s.log.Info("requeued pending documents", "count", len(docs))
+	}
 }

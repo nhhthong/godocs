@@ -1,96 +1,75 @@
-[← Back to Master Flow Catalog](../FLOW.md)
+[← Back to the flow index](../FLOW.md)
 
-# Flow: Document Deletion (`DELETE /api/documents/{id}`)
+# Flow: Delete a document (`DELETE /api/documents/{id}`)
 
-This document details the multi-resource cleanup and deletion flow in **`godocs`**.
+Removes a document you own: the database row, the cache entry, and the file on
+disk.
 
 ---
 
-## 1. Overview & Endpoint Contract
+## 1. Contract
 
-- **HTTP Method & Path**: `DELETE /api/documents/{id}`
-- **Authentication Required**: Yes (`session_id` cookie via `auth.RequireAuth`)
-- **Side Effects**:
-  1. Deletes SQLite document metadata record.
-  2. Evicts cached entry from in-memory TTL cache.
-  3. Deletes binary file from the host filesystem.
+- **Method & path**: `DELETE /api/documents/{id}`
+- **Auth**: required (`godocs_session` cookie)
 - **Response**: `204 No Content`
+- **Effects**: delete the `documents` row → drop the cache entry → delete the file
 
-### Request Example
 ```http
-DELETE /api/documents/0191c49b-89ef-73a2-97b1-b92e316a1b22 HTTP/1.1
-Cookie: session_id=0191c49b-73a2-71c1-90a8-a5b8b6e680a1
-```
-
-### Response Headers (`204 No Content`)
-```http
-HTTP/1.1 204 No Content
+DELETE /api/documents/9f1c0b7a5e2d4c8b6a3f1e0d9c8b7a6f HTTP/1.1
+Cookie: godocs_session=<token>
 ```
 
 ---
 
-## 2. Sequence Diagram
+## 2. Sequence
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as Authenticated Client
-    participant Auth as auth.RequireAuth
-    participant Handler as document.Handler.delete
-    participant Svc as document.Service.Delete
-    participant Cache as cache.TTL (In-Memory)
-    participant Repo as db.DocumentRepo
-    participant DB as SQLite DB
-    participant Storage as storage.Local
+    actor Client
+    participant MW as auth.RequireAuth
+    participant H as document.Handler.delete
+    participant S as document.Service.Delete
+    participant C as cache.TTL
+    participant R as db.DocumentRepo
+    participant DB as SQLite
+    participant St as storage.Local
 
-    Client->>Auth: DELETE /api/documents/{id}
-    Auth->>Auth: Validate session cookie
-    Auth->>Handler: Forward request
+    Client->>MW: DELETE /api/documents/{id}
+    MW->>H: forward (with *User in ctx)
+    H->>S: Delete(ctx, id, owner)
 
-    Handler->>Handler: id = r.PathValue("id")
-    Handler->>Svc: Delete(ctx, id)
-
-    Note over Svc,DB: Step 1: Verify & Fetch Metadata
-    Svc->>Repo: GetByID(ctx, id)
-    Repo->>DB: SELECT * FROM documents WHERE id = ?
-    alt Document Not Found
-        DB-->>Repo: sql.ErrNoRows
-        Repo-->>Svc: ErrNotFound
-        Svc-->>Handler: ErrNotFound
-        Handler-->>Client: 404 Not Found
+    S->>R: GetByID(ctx, id) — need FilePath for step 4
+    alt no row
+        R-->>S: ErrNotFound
+        S-->>H: ErrNotFound → 404
     end
-    DB-->>Repo: Document Row
-    Repo-->>Svc: *Document
+    S->>S: doc.CreatedBy == owner?
+    alt not the owner
+        S-->>H: ErrNotFound → 404
+    end
 
-    Note over Svc,DB: Step 2: Delete Database Record
-    Svc->>Repo: Delete(ctx, id)
-    Repo->>DB: DELETE FROM documents WHERE id = ?
-    DB-->>Repo: Success
-
-    Note over Svc,Cache: Step 3: Evict from RAM Cache
-    Svc->>Cache: Delete(id) [Lock]
-    Cache-->>Svc: Removed
-
-    Note over Svc,Storage: Step 4: Purge Disk Storage
-    Svc->>Storage: Delete(ctx, doc.FilePath)
-    Storage->>Storage: os.Remove(resolvedPath)
-    Storage-->>Svc: Success (or log if already absent)
-
-    Svc-->>Handler: Success
-    Handler-->>Client: 204 No Content
+    S->>R: Delete(ctx, id)
+    R->>DB: DELETE FROM documents WHERE id = ?
+    S->>C: Delete(id)
+    S->>St: Delete(ctx, doc.FilePath)
+    St->>St: os.Remove(resolvedPath) — missing file is fine
+    S-->>H: nil
+    H-->>Client: 204 No Content
 ```
 
 ---
 
-## 3. Step-by-Step Processing Pipeline
+## 3. Step by step
 
-1. **Entity Verification**:
-   Loads the document from the database to obtain its `FilePath`. If it does not exist, immediately halts with `404 Not Found`.
-2. **Database Deletion**:
-   Executes `DELETE FROM documents WHERE id = ?`.
-3. **Cache Eviction**:
-   Calls `cache.Delete(id)` under exclusive lock to guarantee subsequent requests do not serve stale data.
-4. **Filesystem Purge**:
-   Calls `storage.Local.Delete(ctx, doc.FilePath)`, which removes the file from disk using `os.Remove`. If the file was already deleted or missing, the error is handled gracefully without failing the HTTP response.
-5. **No-Content Response**:
-   Returns HTTP `204 No Content`.
+1. **Load first.** The service needs `FilePath` for step 4, and this is also
+   where the `404` for a missing document comes from.
+2. **Ownership check** — not your document → `404`.
+3. **Delete the row**, then **drop the cache entry** so no stale read survives.
+4. **Delete the file.** `storage.Local.Delete` resolves the path safely (see the
+   download flow) and calls `os.Remove`. If the file is already gone, that's
+   fine — the code ignores `os.IsNotExist`. If deletion fails for another reason,
+   it's logged but the request still returns `204`: the row is already gone, so
+   the document is effectively deleted; a leftover file is a cleanup problem, not
+   a client error.
+5. **Return `204`** with no body.

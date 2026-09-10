@@ -1,125 +1,148 @@
-# godocs Architectural Flows & Master API Directory
+# godocs — Flows & API Directory
 
-This document serves as the central architectural reference and master index of all execution flows in **`godocs`**. Each individual API endpoint and background subsystem is decoupled into its own dedicated, in-depth specification document located in [`resources/flow/`](file:///home/vnjdev/projects/godocs/resources/flow/).
+This is the index of every request flow and background job in **`godocs`**. Each
+endpoint has its own file under [`resources/flow/`](file:///home/vnjdev/projects/godocs/resources/flow/)
+with a sequence diagram, the exact error codes it returns, and notes on what the
+Go code is doing and why.
+
+New to the codebase? Read this page, then open `flow/document_upload.md` — it
+touches almost every part of the system (auth, validation, disk I/O, database,
+goroutines).
 
 ---
 
-## 1. Master Flow Catalog
+## 1. Flow Catalog
 
-Click any flow below to view its complete step-by-step sequence diagram, error mappings, security mitigations, and storage guarantees.
+### Authentication (`/api/auth/*`)
 
-### 🔒 Authentication & Identity Flows (`/api/auth/*`)
-| HTTP Method & Path | Flow Specification | Rate Limit | Description |
+| Method & Path | Flow | Rate limit | What it does |
 |---|---|:---:|---|
-| [`POST /api/auth/register`](flow/auth_register.md) | [**User Registration Flow**](flow/auth_register.md) | 1 req/s (burst 5) | Email normalization, bcrypt hashing (cost 12), 128-bit CSPRNG identifier |
-| [`POST /api/auth/login`](flow/auth_login.md) | [**User Login & Cookie Dispatch**](flow/auth_login.md) | 1 req/s (burst 5) | Timing-safe credential comparison, cryptographic session creation, `HttpOnly` cookie |
-| [`POST /api/auth/logout`](flow/auth_logout.md) | [**User Logout & Session Revocation**](flow/auth_logout.md) | Global | Server-side SQLite session deletion, browser cookie purge (`Max-Age=-1`) |
-| [`GET /api/auth/me`](flow/auth_me.md) | [**Current User Profile Verification**](flow/auth_me.md) | Global | Session lookup, expiration verification, caller profile retrieval |
+| [`POST /api/auth/register`](flow/auth_register.md) | [Register](flow/auth_register.md) | 1 req/s, burst 5 | Normalise email, hash password with bcrypt, create user |
+| [`POST /api/auth/login`](flow/auth_login.md) | [Login](flow/auth_login.md) | 1 req/s, burst 5 | Check password, create a session, set the session cookie |
+| [`POST /api/auth/logout`](flow/auth_logout.md) | [Logout](flow/auth_logout.md) | global | Delete the session row, clear the cookie |
+| [`GET /api/auth/me`](flow/auth_me.md) | [Current user](flow/auth_me.md) | global | Return the signed-in user's profile |
 
----
+### Documents (`/api/documents*`)
 
-### 📄 Document Management Flows (`/api/documents*`)
-*All document endpoints are strictly guarded by the `auth.RequireAuth` middleware.*
+Every document endpoint sits behind the `auth.RequireAuth` middleware, and every
+one only sees documents the caller created (`documents.created_by`). Asking for
+someone else's document returns `404`, not `403`, so you can't even tell it exists.
 
-| HTTP Method & Path | Flow Specification | Cache Action | Description |
+| Method & Path | Flow | Cache effect | What it does |
 |---|---|:---:|---|
-| [`POST /api/documents`](flow/document_upload.md) | [**Document Upload & Async Ingestion**](flow/document_upload.md) | Write Initial | `MaxBytesReader` size cap, 512-byte magic byte MIME sniffing, atomic staging disk write with in-flight SHA-256, non-blocking worker queue dispatch |
-| [`GET /api/documents`](flow/document_list.md) | [**Document Listing & Paginated Search**](flow/document_list.md) | None | SQL `LIKE` wildcard escaping (`%`, `_`), total count calculation, chronological pagination |
-| [`GET /api/documents/{id}`](flow/document_get.md) | [**Document Details (Cache-Aside)**](flow/document_get.md) | Read / Backfill | In-memory concurrent generic TTL cache (`RLock`), SQLite database fallback |
-| [`GET /api/documents/{id}/file`](flow/document_download.md) | [**Binary File Download & Range Streaming**](flow/document_download.md) | HTTP ETag | Lexical path traversal protection, RFC 5987 Unicode filename encoding, `http.ServeContent` with HTTP `206 Partial Content` Range seeking |
-| [`PATCH /api/documents/{id}`](flow/document_update.md) | [**Document Metadata Update**](flow/document_update.md) | Invalidate (`Delete`) | Input validation, SQLite update, instantaneous cache eviction under write lock |
-| [`DELETE /api/documents/{id}`](flow/document_delete.md) | [**Document Deletion & Disk Purge**](flow/document_delete.md) | Invalidate (`Delete`) | Database record deletion, cache eviction, physical blob file removal from disk |
+| [`POST /api/documents`](flow/document_upload.md) | [Upload](flow/document_upload.md) | — | Size limit, MIME sniff, atomic disk write with SHA-256, hand off to a worker |
+| [`GET /api/documents`](flow/document_list.md) | [List / search](flow/document_list.md) | — | Escape `LIKE` wildcards, count + page, newest first |
+| [`GET /api/documents/{id}`](flow/document_get.md) | [Get one](flow/document_get.md) | read / fill | In-memory cache first, database on a miss |
+| [`GET /api/documents/{id}/file`](flow/document_download.md) | [Download](flow/document_download.md) | — | Path-traversal check, `http.ServeContent` (supports `Range`) |
+| [`PATCH /api/documents/{id}`](flow/document_update.md) | [Update metadata](flow/document_update.md) | delete | Validate `title`/`summary`, write, drop the cache entry |
+| [`DELETE /api/documents/{id}`](flow/document_delete.md) | [Delete](flow/document_delete.md) | delete | Remove the row, the cache entry, and the file |
 
----
+### System & background
 
-### ⚙️ System & Infrastructure Flows
-| Target Subsystem | Flow Specification | Lifecycle | Description |
+| Subsystem | Flow | Runs | What it does |
 |---|---|:---:|---|
-| [`GET /healthz`](flow/system_healthz.md) | [**Health Check & Database Ping**](flow/system_healthz.md) | Continuous | SQLite context ping, liveness/readiness probe (`200 OK` vs `503 Unavailable`) |
-| [**Worker Subsystem**](flow/background_worker.md) | [**Async Indexing Worker Pool**](flow/background_worker.md) | Background Pool | Bounded channel FIFO queue (buffer 128), worker goroutines, non-blocking backpressure, graceful shutdown drain |
-| [**Janitor Routines**](flow/background_janitors.md) | [**Maintenance Janitors & Sweepers**](flow/background_janitors.md) | Periodic Tickers | Hourly SQLite expired session purge and 1-minute in-memory RAM cache eviction |
+| [`GET /healthz`](flow/system_healthz.md) | [Health check](flow/system_healthz.md) | on request | Ping SQLite; `200` if reachable, `503` if not |
+| [Worker pool](flow/background_worker.md) | [Async indexing](flow/background_worker.md) | goroutines | Buffered channel + N workers, non-blocking enqueue, drains on shutdown |
+| [Janitors](flow/background_janitors.md) | [Sweepers](flow/background_janitors.md) | tickers | Hourly: delete expired sessions. Every minute: drop expired cache entries |
 
 ---
 
-## 2. High-Level System Topology & Ingress Pipeline
+## 2. Request pipeline
 
-Every request enters through `cmd/api/main.go` and is processed through a strict, zero-allocation middleware pipeline before reaching the Go 1.22+ `http.ServeMux` router:
+Every request goes through the same middleware chain (built in
+`cmd/api/main.go` with `httpx.Chain`) before it reaches the router. Middleware is
+just `func(http.Handler) http.Handler` — a handler that wraps another handler.
 
 ```mermaid
 flowchart TD
-    Client([HTTP Client / Browser / SPA]) --> IngressPipe
+    Client([HTTP client / browser]) --> Pipe
 
-    subgraph IngressPipe ["httpx.Chain Middleware Pipeline"]
-        M1["1. CORS<br/>Origin validation & OPTIONS preflight"] --> M2["2. RequestID<br/>X-Request-Id injection & Context attachment"]
-        M2 --> M3["3. Logging<br/>Structured JSON access logs (slog)"]
-        M3 --> M4["4. Recover<br/>Panic interception & 500 JSON envelope"]
-        M4 --> M5["5. RateLimiter<br/>Token Bucket per client IP"]
-        M5 --> M6["6. Timeout<br/>30-second context cancellation deadline"]
+    subgraph Pipe ["httpx.Chain — outermost first"]
+        M1["1. CORS<br/>allow-list check + OPTIONS preflight"] --> M2["2. RequestID<br/>set X-Request-Id, put it in the context"]
+        M2 --> M3["3. Logging<br/>one slog line per request"]
+        M3 --> M4["4. Recover<br/>turn a panic into a 500 instead of a crash"]
+        M4 --> M5["5. RateLimit<br/>token bucket, keyed by client IP"]
+        M5 --> M6["6. Timeout<br/>30s deadline on the request context"]
     end
 
-    M6 --> Router{Go 1.22 ServeMux}
+    M6 --> Router{Go 1.22 http.ServeMux}
 
-    subgraph Endpoints ["Routing & Handlers"]
-        Router -->|"/api/auth/*"| AuthH["auth.Handler<br/>(Dedicated 1 req/s brute-force guard)"]
-        Router -->|"/api/documents*"| AuthGuard["auth.RequireAuth Middleware<br/>(Validates session cookie)"]
-        AuthGuard --> DocH["document.Handler"]
-        Router -->|"/healthz"| HealthH["Health Probe"]
-        Router -->|"/"| FileSrv["http.FileServer (web/index.html)"]
+    subgraph Routes ["Routing"]
+        Router -->|"/api/auth/*"| AuthH["auth.Handler<br/>(extra 1 req/s limiter)"]
+        Router -->|"/api/documents*"| Guard["auth.RequireAuth<br/>(checks the session cookie)"]
+        Guard --> DocH["document.Handler"]
+        Router -->|"/healthz"| HealthH["health check"]
+        Router -->|"/"| FileSrv["http.FileServer (web/)"]
     end
 
-    subgraph StorageAndCore ["Core Infrastructure"]
-        AuthH --> AuthSvc["auth.Service"] --> AuthRepo[("SQLite Users & Sessions")]
+    subgraph Core ["Services & storage"]
+        AuthH --> AuthSvc["auth.Service"] --> AuthDB[("SQLite: users, sessions")]
         DocH --> DocSvc["document.Service"]
-        DocSvc <--> DocCache[("In-Memory TTL Cache")]
-        DocSvc --> DocRepo[("SQLite Documents")]
-        DocSvc --> LocalBlobs[("Disk Storage (SHA-256)")]
-        DocSvc -.->|Enqueue docID| WorkerQueue[("Buffered Job Queue (128)")]
-        WorkerQueue --> WorkerPool["N Worker Goroutines"]
-        WorkerPool -->|Update Status: ready / failed| DocSvc
+        DocSvc <--> DocCache[("in-memory TTL cache")]
+        DocSvc --> DocDB[("SQLite: documents")]
+        DocSvc --> Blobs[("disk storage + SHA-256")]
+        DocSvc -.->|"Enqueue(id)"| Queue[("job channel (APP_QUEUE_SIZE)")]
+        Queue --> Workers["N worker goroutines"]
+        Workers -->|"set status: ready / failed"| DocDB
     end
 ```
 
 ---
 
-## 3. Global Service Bootstrap & Two-Phase Graceful Shutdown
+## 3. Startup and shutdown
 
-The service startup and termination sequence in [`cmd/api/main.go`](file:///home/vnjdev/projects/godocs/cmd/api/main.go) ensures zero dropped requests and no orphaned background workers:
+`run()` in [`cmd/api/main.go`](file:///home/vnjdev/projects/godocs/cmd/api/main.go)
+wires everything by hand — no dependency-injection framework. Reading it top to
+bottom is the fastest way to learn the architecture. Shutdown drains HTTP first,
+then the workers, so nothing in flight is dropped.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor OS as OS / Container Runtime (K8s)
+    actor OS as OS / container
     participant Main as cmd/api (run)
-    participant Server as net/http.Server
+    participant Server as http.Server
     participant Workers as worker.Indexer
-    participant DB as SQLite DB Pool
+    participant DB as SQLite pool
 
-    OS->>Main: Process Start
-    Main->>DB: Open WAL connection & execute migrations/*.sql
-    Main->>Workers: Start N worker goroutines
-    Main->>Server: Start listening on cfg.Addr in background goroutine
+    OS->>Main: start
+    Main->>DB: open (WAL mode), run pending migrations once
+    Main->>Workers: start N goroutines
+    Main->>Workers: RequeuePending() — re-enqueue docs stuck in "pending"
+    Main->>Server: ListenAndServe in a goroutine
 
-    Note over OS,DB: Normal Service Operation
+    Note over OS,DB: serving traffic
 
-    OS->>Main: Signal: SIGINT / SIGTERM (Interrupt)
-    Note over Main: Phase 1: Drain Ingress Traffic
-    Main->>Server: Server.Shutdown(ctx 20s)
-    Server-->>Main: In-flight HTTP requests completed, listener closed
+    OS->>Main: SIGINT / SIGTERM
+    Note over Main: phase 1 — stop taking new requests
+    Main->>Server: Shutdown(ctx, 20s)
+    Server-->>Main: in-flight requests finished, listener closed
 
-    Note over Main: Phase 2: Drain Worker Pool
-    Main->>Workers: Indexer.Shutdown(ctx 20s)
-    Workers->>Workers: Close channel & wait for workers (sync.WaitGroup)
-    Workers-->>Main: All background tasks finished
+    Note over Main: phase 2 — drain the worker pool
+    Main->>Workers: Shutdown(ctx, 20s)
+    Workers->>Workers: close the job channel, wait on the WaitGroup
+    Workers-->>Main: workers done
 
-    Main->>DB: Close database connection pool
-    Main-->>OS: Process Exit (Code 0)
+    Main->>DB: close pool
+    Main-->>OS: exit 0
 ```
 
 ---
 
-## 4. Architectural Decisions & Production Design Patterns
+## 4. Design choices worth knowing
 
-1. **Clean Hexagonal Architecture**: Domain logic in `internal/document` and `internal/auth` never imports infrastructure drivers (`internal/storage` or `internal/db`). All boundaries are decoupled via consumer-defined Go interfaces (`Repository`, `BlobStore`, `Cache`, `Indexer`).
-2. **Standard Library First**: Built strictly with Go 1.22+ standard library features (`net/http` routing with method matching and path parameters, `log/slog` structured logging, `sync`, `context`) without heavy external web frameworks.
-3. **Pure Go CGO-Free SQLite**: Powered by `modernc.org/sqlite` in Write-Ahead Logging (`WAL`) mode, allowing single-binary portable builds without requiring a C compiler.
-4. **Resilient Non-Blocking Concurrency**: Channel submission employs `select` with `default` for instant backpressure, and workers utilize independent execution contexts so client aborts do not corrupt background indexing.
+1. **Domain code doesn't import infrastructure.** `internal/document` and
+   `internal/auth` define the interfaces they need (`Repository`, `BlobStore`,
+   `Cache`, `Indexer`); `internal/db` and `internal/storage` implement them. The
+   dependency arrow points inward, which keeps the domain easy to unit-test with
+   small fakes.
+2. **Standard library first.** Routing (`http.ServeMux` with method + path
+   patterns, Go 1.22), logging (`log/slog`), concurrency (`sync`, `context`) —
+   no web framework.
+3. **Pure-Go SQLite.** `modernc.org/sqlite` needs no C compiler, so `go build`
+   produces one portable binary. The pool is limited to a single connection
+   because SQLite has one writer at a time; that removes lock contention at the
+   cost of serialising queries (fine for this workload).
+4. **Non-blocking background work.** Upload enqueues with `select { case ch <- id:
+   default: }`, so a full queue never blocks the HTTP response. Workers run on
+   their own `context` with a 30s timeout, independent of the client.

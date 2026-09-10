@@ -1,35 +1,37 @@
-[← Back to Master Flow Catalog](../FLOW.md)
+[← Back to the flow index](../FLOW.md)
 
-# Flow: User Login (`POST /api/auth/login`)
+# Flow: Login (`POST /api/auth/login`)
 
-This document outlines the complete technical execution flow for user authentication and session establishment in **`godocs`**.
+Checks an email + password, creates a session row, and sends back the session
+cookie. Public endpoint.
 
 ---
 
-## 1. Overview & Endpoint Contract
+## 1. Contract
 
-- **HTTP Method & Path**: `POST /api/auth/login`
-- **Authentication Required**: No (Public Endpoint)
-- **Rate Limit**: Strictly limited to `1 req/s` (burst `5`) per client IP via `httpx.RateLimit(1, 5)`.
-- **Request Content-Type**: `application/json`
-- **Response**: Returns User JSON profile and sets an `HttpOnly` stateful session cookie.
+- **Method & path**: `POST /api/auth/login`
+- **Auth**: none
+- **Rate limit**: 1 req/s, burst 5, per IP
+- **Request / response**: JSON; on success also sets the `godocs_session` cookie
 
-### Request Payload
+### Request
+
 ```json
 {
   "email": "learner@example.com",
-  "password": "CorrectHorseBattery99!"
+  "password": "correcthorsebattery"
 }
 ```
 
-### Response Headers & Body (`200 OK`)
+### Response — `200 OK`
+
 ```http
 HTTP/1.1 200 OK
 Content-Type: application/json
-Set-Cookie: session_id=0191c49b-73a2-71c1-90a8-a5b8b6e680a1; Path=/; Expires=Thu, 17 Sep 2026 10:00:00 GMT; Max-Age=604800; HttpOnly; SameSite=Lax
+Set-Cookie: godocs_session=<64-hex-token>; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax; Secure
 
 {
-  "id": "0191c49b-73a2-71c1-90a8-a5b8b6e680a1",
+  "id": "3f9a2b7c1d8e4f0a6b5c9d2e7f1a0b3c",
   "email": "learner@example.com",
   "created_at": "2026-09-10T10:00:00Z"
 }
@@ -37,89 +39,100 @@ Set-Cookie: session_id=0191c49b-73a2-71c1-90a8-a5b8b6e680a1; Path=/; Expires=Thu
 
 ---
 
-## 2. Sequence Diagram
+## 2. Sequence
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as HTTP Client / Browser
-    participant RateLimit as httpx.RateLimit (1 rps, burst 5)
-    participant Handler as auth.Handler.login
-    participant Svc as auth.Service.Login
-    participant Repo as db.AuthRepo
-    participant DB as SQLite DB
+    actor Client
+    participant RL as httpx.RateLimit (1/s, burst 5)
+    participant H as auth.Handler.login
+    participant S as auth.Service.Login
+    participant R as db.AuthRepo
+    participant DB as SQLite
 
-    Client->>RateLimit: POST /api/auth/login
-    alt Rate limit exceeded
-        RateLimit-->>Client: 429 Too Many Requests (Retry-After: 1)
-    else Within quota
-        RateLimit->>Handler: Forward Request
+    Client->>RL: POST /api/auth/login
+    alt over the limit
+        RL-->>Client: 429
+    else
+        RL->>H: forward
     end
 
-    Handler->>Handler: httpx.DecodeJSON(r, &credentials)
-    alt Invalid JSON
-        Handler-->>Client: 400 Bad Request (code: "invalid_json")
+    H->>H: httpx.DecodeJSON(r, &creds)
+    alt bad JSON
+        H-->>Client: 400 invalid_json
     end
 
-    Handler->>Svc: Login(ctx, email, password)
+    H->>S: Login(ctx, email, password)
+    S->>R: FindUserByEmail(ctx, email)
 
-    Note over Svc: Constant-Time Hash Comparison & Timing Attack Mitigation
-    alt User not found
-        Note over Svc: Executes dummy bcrypt comparison against predefined salt
-        Svc->>Svc: checkPassword(dummyHash, password)
-        Svc-->>Handler: ErrBadCredentials
-        Handler-->>Client: 401 Unauthorized (code: "bad_credentials")
-    else User found
-        Svc->>Svc: bcrypt.CompareHashAndPassword(user.PasswordHash, password)
-        alt Password Mismatch
-            Svc-->>Handler: ErrBadCredentials
-            Handler-->>Client: 401 Unauthorized (code: "bad_credentials")
+    alt no such user
+        R-->>S: ErrBadCredentials
+        S->>S: bcrypt.CompareHashAndPassword(dummyHash, password)
+        Note over S: run the hash anyway so a missing<br/>account takes the same time as a wrong password
+        S-->>H: ErrBadCredentials
+        H-->>Client: 401 bad_credentials
+    else database error
+        R-->>S: real error
+        S-->>H: error
+        H-->>Client: 500 internal_error
+    else user found
+        R-->>S: user, passwordHash
+        S->>S: bcrypt.CompareHashAndPassword(passwordHash, password)
+        alt wrong password
+            S-->>H: ErrBadCredentials
+            H-->>Client: 401 bad_credentials
         end
     end
 
-    Note over Svc: Stateful Session Generation
-    Svc->>Svc: Generate 256-bit CSPRNG Token (id.Token(), 64 hex chars)
-    Svc->>Svc: Calculate Expiration: time.Now().Add(cfg.SessionTTL)
-    Svc->>Repo: CreateSession(ctx, Session{Token, UserID, ExpiresAt})
-    Repo->>DB: INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (...)
-    DB-->>Repo: RowsAffected = 1
+    S->>S: token = id.Token() (32 random bytes, 64 hex)
+    S->>S: expiresAt = now + cfg.SessionTTL
+    S->>R: CreateSession(ctx, {token, userID, expiresAt})
+    R->>DB: INSERT INTO sessions (token, user_id, created_at, expires_at)
+    Note over R,DB: stores sha256(token), not the token itself
 
-    Repo-->>Svc: Session Committed
-    Svc-->>Handler: Return (User, Session)
-
-    Note over Handler: Secure Cookie Configuration
-    Handler->>Handler: Set-Cookie: session_id=<token>, HttpOnly, SameSite=Lax, Secure
-    Handler-->>Client: 200 OK + User JSON Body
+    S-->>H: user, session
+    H->>H: Set-Cookie godocs_session=<token> (HttpOnly, SameSite=Lax, Secure)
+    H-->>Client: 200 OK + user JSON
 ```
 
 ---
 
-## 3. Step-by-Step Processing Pipeline
+## 3. Step by step
 
-1. **Brute-Force Guard**:
-   Dedicated per-IP rate limiter throttles incoming attempts to protect against online credential stuffing.
-2. **Timing-Safe Error Uniformity & Dummy Hash Defense**:
-   If the email does not exist, the service executes a dummy bcrypt comparison (`checkPassword(string(dummyHash), password)`) against a predefined constant salt before returning `ErrBadCredentials`. This guarantees authentication requests take identical CPU time regardless of whether the account exists, completely neutralizing timing side-channel attacks for account enumeration.
-3. **Password Verification**:
-   Calls `bcrypt.CompareHashAndPassword`, safely comparing plaintext input against the salted bcrypt hash.
-4. **High-Entropy Session Token Issuance**:
-   A 256-bit cryptographically secure pseudorandom token (64-character hex string) is generated via `id.Token()` reading directly from the OS CSPRNG (`crypto/rand`).
-5. **Database Storage**:
-   The session record is committed to SQLite with a 7-day expiration (`APP_SESSION_TTL_HOURS=168`).
-6. **Cookie Security Hardening**:
-   - `HttpOnly`: Prevents JavaScript execution from accessing the cookie (`document.cookie`), mitigating XSS session theft.
-   - `SameSite=Lax`: Defends against CSRF attacks across external sites.
-   - `Secure`: Ensures cookies are transmitted only over TLS/HTTPS (configurable for localhost dev).
-   - `Path=/`: Valid across all application endpoints.
+1. **Rate limit** — same per-IP bucket as register, to slow down password
+   guessing.
+2. **Look up the user.** `FindUserByEmail` returns `ErrBadCredentials` when there
+   is no row, and a wrapped error for a real database problem. The service tells
+   the two apart: a missing user → `401 bad_credentials`, a database failure →
+   `500`. (An earlier version turned *every* error into `401`, which hid outages.)
+3. **Even out the timing.** If the user doesn't exist, the service still runs one
+   bcrypt comparison against a fixed dummy hash. Without this, "no such account"
+   would return noticeably faster than "wrong password", which leaks which emails
+   are registered.
+4. **Check the password** with `bcrypt.CompareHashAndPassword`. It re-hashes the
+   input with the salt embedded in the stored hash and compares — you never
+   decrypt a bcrypt hash.
+5. **Create the session.** `id.Token()` reads 32 bytes from `crypto/rand` and
+   hex-encodes them (64 chars). The row expires after `APP_SESSION_TTL_HOURS`
+   (default 168 = 7 days).
+6. **Store only a hash.** The database keeps `sha256(token)`. The real token
+   lives only in the user's cookie, so a leaked `sessions` table can't be used to
+   impersonate anyone. Plain SHA-256 is fine here because the token is already
+   256 bits of randomness — no slow hash needed.
+7. **Set the cookie.**
+   - `HttpOnly` — JavaScript can't read it, which limits XSS damage.
+   - `SameSite=Lax` — the browser won't send it on cross-site POSTs, blocking basic CSRF.
+   - `Secure` — HTTPS only (set `APP_COOKIE_SECURE=false` for plain-HTTP local dev).
 
 ---
 
-## 4. Error Mapping Reference
+## 4. Errors
 
-| Condition | HTTP Status | Error Code | Description |
-|---|:---:|---|---|
-| Rate limit exceeded | `429` | `rate_limit_exceeded` | Token bucket depleted |
-| Malformed JSON body | `400` | `invalid_json` | Syntax error in JSON body |
-| Email not found | `401` | `bad_credentials` | Uniform error message |
-| Incorrect password | `401` | `bad_credentials` | Uniform error message |
-| Database failure | `500` | `internal_error` | System failure |
+| Condition | Status | Code |
+|---|:---:|---|
+| Over the rate limit | `429` | `rate_limited` |
+| Bad JSON body | `400` | `invalid_json` |
+| Unknown email | `401` | `bad_credentials` |
+| Wrong password | `401` | `bad_credentials` |
+| Database failure | `500` | `internal_error` |

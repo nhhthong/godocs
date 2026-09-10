@@ -1,78 +1,84 @@
-[← Back to Master Flow Catalog](../FLOW.md)
+[← Back to the flow index](../FLOW.md)
 
-# Flow: Background Maintenance Janitors & Sweepers
+# Flow: Background janitors
 
-This document details the periodic background janitor goroutines responsible for automated data cleanup and RAM management in **`godocs`**.
+Two small goroutines that run on a `time.Ticker` and clean up as the process
+runs. Both stop cleanly when the server shuts down.
+
+1. **Session sweeper** — deletes expired session rows from SQLite, hourly.
+   Started in [`cmd/api/main.go`](file:///home/vnjdev/projects/godocs/cmd/api/main.go)
+   (`go sweepSessions(...)`).
+2. **Cache janitor** — removes expired entries from the in-memory cache, every
+   minute. Started by [`cache.TTL.StartJanitor`](file:///home/vnjdev/projects/godocs/internal/cache/ttl.go).
+
+> The startup task `Service.RequeuePending` (re-enqueue documents stuck in
+> `pending`) is a related idea but not a janitor — it runs once at boot, not on a
+> timer. See the [worker flow](background_worker.md).
 
 ---
 
-## 1. Subsystems Overview
-
-Long-running Go applications must actively manage in-memory structures and storage tables to prevent memory leaks and database bloat:
-
-1. **Session Sweeper** ([`cmd/api/main.go`](file:///home/vnjdev/projects/godocs/cmd/api/main.go) / [`internal/auth`](file:///home/vnjdev/projects/godocs/internal/auth)): Periodic goroutine purging expired login sessions from SQLite.
-2. **Cache Janitor** ([`internal/cache/ttl.go`](file:///home/vnjdev/projects/godocs/internal/cache/ttl.go)): Background routine pruning expired items from the in-memory generic cache.
-
----
-
-## 2. Session Sweeper Lifecycle
+## 1. Session sweeper
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor System as cmd/api (go sweepSessions)
-    participant Ticker as time.NewTicker(1 Hour)
-    participant AuthSvc as auth.Service
-    participant Repo as db.AuthRepo
-    participant DB as SQLite DB
+    participant G as go sweepSessions
+    participant T as time.Ticker (1h)
+    participant S as auth.Service
+    participant R as db.AuthRepo
+    participant DB as SQLite
 
-    Note over System,DB: Hourly Background Routine
-    loop Every 1 Hour until ctx.Done()
-        Ticker->>System: Tick event
-        System->>AuthSvc: PurgeExpired(ctx)
-        AuthSvc->>Repo: DeleteExpiredSessions(ctx)
-        Repo->>DB: DELETE FROM sessions WHERE expires_at < CURRENT_TIMESTAMP
-        DB-->>Repo: n rows deleted
-        Repo-->>AuthSvc: n
-        AuthSvc-->>System: n
+    loop until ctx is cancelled
+        T->>G: tick
+        G->>S: PurgeExpired(ctx)
+        S->>R: DeleteExpiredSessions(ctx, now)
+        R->>DB: DELETE FROM sessions WHERE expires_at < ?   (now as Unix seconds)
+        DB-->>R: n rows
+        R-->>S: n
         alt n > 0
-            System->>System: log.Info("session sweep", "deleted", n)
+            G->>G: log.Info("session sweep", "deleted", n)
         end
     end
-    Note over System: Terminates cleanly when server context is cancelled
 ```
+
+Expiry is also checked on every `/me` and every protected request (see
+[auth_me](auth_me.md)) — an expired session is rejected and its row deleted right
+then. The sweeper is just housekeeping so dead rows don't accumulate between
+logins.
 
 ---
 
-## 3. Cache Janitor Lifecycle
+## 2. Cache janitor
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Cache as cache.TTL (StartJanitor)
-    participant Ticker as time.NewTicker(1 Minute)
-    participant Store as items map[K]item[V]
-    participant Mutex as sync.RWMutex
+    participant J as StartJanitor goroutine
+    participant T as time.Ticker (1m)
+    participant M as items map
+    participant Mu as sync.RWMutex
 
-    Note over Cache,Mutex: Periodic Cache Eviction
-    loop Every 1 Minute until stop chan closed
-        Ticker->>Cache: Tick event
-        Cache->>Mutex: Lock() (Exclusive write access)
-        Note over Cache,Store: Scan & Prune Expired Entries
-        loop For each (key, item) in items map
-            alt time.Now() > item.expiresAt
-                Cache->>Store: delete(items, key)
+    loop until close(stop)
+        T->>J: tick
+        J->>Mu: Lock()
+        loop for key, entry := range items
+            alt now > entry.expiresAt
+                J->>M: delete(items, key)
             end
         end
-        Cache->>Mutex: Unlock()
+        J->>Mu: Unlock()
     end
-    Note over Cache: Exits immediately when close(stop) is called in main.go
 ```
+
+`cache.TTL.Get` already treats an expired entry as a miss, so the janitor doesn't
+affect correctness — it just frees memory that expired keys would otherwise hold
+until the next `Get` or `Set` on the same key.
 
 ---
 
-## 4. Key Guarantees
+## 3. Guarantees
 
-- **No Goroutine Leaks**: Both routines listen to termination signals (`<-ctx.Done()` or `<-stop`) and stop their respective `time.Ticker` instances with `defer t.Stop()`.
-- **Bounded Write Lock Duration**: The cache janitor executes a simple dictionary sweep in memory, releasing the `RWMutex` in sub-millisecond time to ensure minimal reader latency.
-- **Resource Reclaim**: Dead sessions are deleted from SQLite, enabling SQLite's auto-vacuum or page reuse to keep database file sizes compact.
+- **No goroutine leaks.** Each loop selects on `<-ctx.Done()` (sweeper) or
+  `<-stop` (janitor) and calls `defer ticker.Stop()`.
+- **Short lock hold.** The cache janitor does one in-memory map scan per minute
+  and releases the write lock immediately, so readers barely notice.

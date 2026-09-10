@@ -51,12 +51,25 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*document.Docume
 }
 
 func (r *DocumentRepo) List(ctx context.Context, f document.ListFilter) ([]document.Document, int, error) {
-	where, args := "", []any{}
+	var conds []string
+	var args []any
 	if q := strings.TrimSpace(f.Query); q != "" {
 		// ESCAPE '\' treats '%' and '_' wildcards as literal characters to prevent query injections
-		where = ` WHERE (title LIKE ? ESCAPE '\' OR summary LIKE ? ESCAPE '\')`
+		conds = append(conds, `(title LIKE ? ESCAPE '\' OR summary LIKE ? ESCAPE '\')`)
 		like := "%" + escapeLike(q) + "%"
 		args = append(args, like, like)
+	}
+	if f.Owner != "" {
+		conds = append(conds, `created_by = ?`)
+		args = append(args, f.Owner)
+	}
+	if f.Status != "" {
+		conds = append(conds, `status = ?`)
+		args = append(args, string(f.Status))
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = " WHERE " + strings.Join(conds, " AND ")
 	}
 
 	var total int
@@ -86,9 +99,12 @@ func (r *DocumentRepo) List(ctx context.Context, f document.ListFilter) ([]docum
 	return out, total, nil
 }
 
+// Update writes user-editable metadata only. The status column is owned by the
+// background worker and is written exclusively via SetStatus, so a concurrent
+// PATCH of title/summary can never clobber a status transition.
 func (r *DocumentRepo) Update(ctx context.Context, d *document.Document) error {
-	const q = `UPDATE documents SET title=?, summary=?, status=?, updated_at=? WHERE id=?`
-	res, err := r.db.ExecContext(ctx, q, d.Title, d.Summary, string(d.Status), d.UpdatedAt.Unix(), d.ID)
+	const q = `UPDATE documents SET title=?, summary=?, updated_at=? WHERE id=?`
+	res, err := r.db.ExecContext(ctx, q, d.Title, d.Summary, d.UpdatedAt.Unix(), d.ID)
 	if err != nil {
 		return fmt.Errorf("repo: update: %w", err)
 	}
@@ -98,6 +114,19 @@ func (r *DocumentRepo) Update(ctx context.Context, d *document.Document) error {
 	}
 	if n == 0 {
 		return fmt.Errorf("%w: id=%s", document.ErrNotFound, d.ID)
+	}
+	return nil
+}
+
+// SetStatus updates only the processing status (and updated_at) for one document.
+func (r *DocumentRepo) SetStatus(ctx context.Context, id string, st document.Status, updatedAt time.Time) error {
+	const q = `UPDATE documents SET status=?, updated_at=? WHERE id=?`
+	res, err := r.db.ExecContext(ctx, q, string(st), updatedAt.Unix(), id)
+	if err != nil {
+		return fmt.Errorf("repo: set status: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("%w: id=%s", document.ErrNotFound, id)
 	}
 	return nil
 }

@@ -1,66 +1,62 @@
-[← Back to Master Flow Catalog](../FLOW.md)
+[← Back to the flow index](../FLOW.md)
 
-# Flow: System Health Check (`GET /healthz`)
+# Flow: Health check (`GET /healthz`)
 
-This document describes the liveness and database connectivity probe flow in **`godocs`**.
+A liveness/readiness probe: is the process up *and* can it reach the database?
 
 ---
 
-## 1. Overview & Endpoint Contract
+## 1. Contract
 
-- **HTTP Method & Path**: `GET /healthz`
-- **Authentication Required**: No (Public Liveness / Readiness Probe)
-- **Rate Limit**: Subject to global IP rate limiting (`APP_RATE_RPS=10`, `APP_RATE_BURST=20`)
-- **Response Content-Type**: `application/json`
+- **Method & path**: `GET /healthz`
+- **Auth**: none
+- **Rate limit**: the global per-IP limiter only (`APP_RATE_RPS`, `APP_RATE_BURST`)
+- **Response**: JSON
 
-### Success Response (`200 OK`)
+`200 OK`
+
 ```json
-{
-  "status": "ok"
-}
+{ "status": "ok" }
 ```
 
-### Unhealthy Response (`503 Service Unavailable`)
+`503 Service Unavailable`
+
 ```json
-{
-  "error": {
-    "code": "db_down",
-    "message": "database unavailable"
-  }
-}
+{ "error": { "code": "db_down", "message": "database unavailable" } }
 ```
 
 ---
 
-## 2. Sequence Diagram
+## 2. Sequence
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Probe as Load Balancer / Kubernetes Liveness Probe
-    participant Mux as ServeMux ("GET /healthz")
-    participant DB as SQLite Connection Pool
+    actor Probe as load balancer / k8s probe
+    participant Mux as http.ServeMux ("GET /healthz")
+    participant DB as SQLite pool
 
     Probe->>Mux: GET /healthz
     Mux->>DB: pool.PingContext(r.Context())
-    
-    alt SQLite Responds (Connection Healthy)
-        DB-->>Mux: nil (OK)
-        Mux-->>Probe: 200 OK {"status": "ok"}
-    else SQLite Unresponsive / Disk Full / Timeout
+    alt reachable
+        DB-->>Mux: nil
+        Mux-->>Probe: 200 {"status":"ok"}
+    else error
         DB-->>Mux: err
-        Mux-->>Probe: 503 Service Unavailable {"error": {"code": "db_down", "message": "database unavailable"}}
+        Mux-->>Probe: 503 {"error":{"code":"db_down"}}
     end
 ```
 
 ---
 
-## 3. Step-by-Step Processing Pipeline
+## 3. Notes
 
-1. **Context-Aware Database Ping**:
-   Executes `pool.PingContext(r.Context())` against the SQLite driver. This checks:
-   - SQLite file accessibility on disk.
-   - Connection pool responsiveness within the request context deadline (30s).
-   - Write-Ahead Logging (WAL) lock state.
-2. **Kubernetes / Container Compatibility**:
-   Returning `503 Service Unavailable` signals container orchestrators to remove the instance from service routing until health is restored.
+1. **`PingContext`** opens (or reuses) a connection and runs SQLite's ping. It
+   fails if the database file is unreachable or if the request's 30s context
+   deadline is hit first.
+2. **`503` is deliberate.** Orchestrators (Kubernetes, load balancers) read a
+   `503` as "take this instance out of rotation until it recovers", which is what
+   you want when the database is down.
+3. The handler is registered directly on the mux, so it still passes through the
+   full middleware chain (CORS, request id, logging, recover, rate limit,
+   timeout).

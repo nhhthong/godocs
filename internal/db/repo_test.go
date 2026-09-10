@@ -58,14 +58,21 @@ func TestDocumentRepoCRUD(t *testing.T) {
 	}
 
 	got.Title = "renamed title"
-	got.Status = document.StatusReady
 	got.UpdatedAt = got.UpdatedAt.Add(time.Minute)
 	if err := repo.Update(ctx, got); err != nil {
 		t.Fatalf("update: %v", err)
 	}
+	// Status is written on its own path and must be untouched by a metadata Update.
+	if err := repo.SetStatus(ctx, "doc1", document.StatusReady, got.UpdatedAt); err != nil {
+		t.Fatalf("set status: %v", err)
+	}
 	after, _ := repo.GetByID(ctx, "doc1")
 	if after.Title != "renamed title" || after.Status != document.StatusReady {
 		t.Fatalf("update was not persisted: %+v", after)
+	}
+
+	if err := repo.SetStatus(ctx, "missing", document.StatusReady, got.UpdatedAt); !errors.Is(err, document.ErrNotFound) {
+		t.Fatalf("set status on missing doc: expected ErrNotFound, got %v", err)
 	}
 
 	if err := repo.Delete(ctx, "doc1"); err != nil {
@@ -121,6 +128,59 @@ func TestDocumentRepoListEscapesLikeWildcards(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Fatalf("len(items) = %d, expected 2 (constrained by LIMIT)", len(items))
+	}
+}
+
+func TestMigrateRecordsAndSkips(t *testing.T) {
+	pool := openTestDB(t) // already migrated once
+	ctx := context.Background()
+
+	var applied int
+	if err := pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
+		t.Fatalf("count migrations: %v", err)
+	}
+	if applied != 2 {
+		t.Fatalf("schema_migrations rows = %d, want 2", applied)
+	}
+
+	// Re-running must be a no-op (no error, no duplicate rows).
+	if err := Migrate(ctx, pool, "../../migrations"); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	if err := pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != 2 {
+		t.Fatalf("after re-run schema_migrations rows = %d, want 2", applied)
+	}
+}
+
+func TestDocumentRepoListFiltersByOwner(t *testing.T) {
+	repo := NewDocumentRepo(openTestDB(t))
+	ctx := context.Background()
+
+	mk := func(id, owner string) {
+		d := sampleDoc(id)
+		d.CreatedBy = owner
+		if err := repo.Create(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("a1", "alice")
+	mk("a2", "alice")
+	mk("b1", "bob")
+
+	items, total, err := repo.List(ctx, document.ListFilter{Owner: "alice", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(items) != 2 {
+		t.Fatalf("owner=alice: total=%d items=%d, expected 2/2", total, len(items))
+	}
+	for _, it := range items {
+		if it.CreatedBy != "alice" {
+			t.Fatalf("leaked document owned by %q", it.CreatedBy)
+		}
 	}
 }
 

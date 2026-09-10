@@ -1,106 +1,116 @@
-[← Back to Master Flow Catalog](../FLOW.md)
+[← Back to the flow index](../FLOW.md)
 
-# Flow: Asynchronous Document Indexing Worker Pool
+# Flow: Background indexing worker pool
 
-This document details the concurrent background worker pool subsystem in **`godocs`** implemented in [`internal/worker/indexer.go`](file:///home/vnjdev/projects/godocs/internal/worker/indexer.go).
+Source: [`internal/worker/indexer.go`](file:///home/vnjdev/projects/godocs/internal/worker/indexer.go).
 
----
-
-## 1. Subsystem Architecture
-
-The background indexing pipeline allows time-consuming document processing (text extraction, summary analysis, thumbnail generation) to occur asynchronously without stalling the HTTP upload response.
-
-### Concurrency Primitives & Synchronization
-- **Bounded FIFO Queue**: `jobs chan string` with capacity `128`.
-- **Worker Goroutines**: $N$ concurrent workers configured via `APP_WORKERS` (default: 4).
-- **Graceful Drain Coordination**: `sync.WaitGroup` monitors active workers.
-- **Race Guard for Shutdown**: `sync.RWMutex` serializes task submission against channel closure to prevent runtime panics (`send on closed channel`).
+Slow per-document work (text extraction, thumbnails, virus scan — here just a
+simulated 200 ms sleep) runs on background goroutines so the upload response
+doesn't wait for it. This is the classic **buffered channel + worker pool**
+pattern.
 
 ---
 
-## 2. Sequence Diagram
+## 1. Pieces
+
+- **Job queue**: `jobs chan string` — a buffered channel of document ids. Buffer
+  size is `APP_QUEUE_SIZE` (default 128).
+- **Workers**: `N` goroutines (`APP_WORKERS`, default 4), each doing
+  `for id := range jobs { ... }`.
+- **`sync.WaitGroup`**: lets `Shutdown` wait until every worker has returned.
+- **`sync.RWMutex` + `closed bool`**: `Enqueue` takes `RLock`, `Shutdown` takes
+  `Lock`. This stops a send from racing `close(jobs)` — sending on a closed
+  channel panics, and the race detector flags a concurrent send/close even
+  without a panic.
+
+---
+
+## 2. Enqueue and process
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Handler as Document Service (HTTP Thread)
-    participant Indexer as worker.Indexer
-    participant Queue as jobs chan string (cap 128)
-    participant Workers as Worker Goroutines (Pool of N)
-    participant DB as SQLite DB
+    participant S as document.Service (HTTP goroutine)
+    participant I as worker.Indexer
+    participant Q as jobs chan (buffer APP_QUEUE_SIZE)
+    participant W as worker goroutine
+    participant DB as SQLite
 
-    Note over Handler,Queue: Task Submission (Enqueue)
-    Handler->>Indexer: Enqueue(docID)
-    Indexer->>Indexer: mu.RLock() (Guards against closed channel)
-    alt Channel is closed
-        Indexer-->>Handler: false
-    else Channel is open
-        alt Queue has space (Capacity < 128)
-            Indexer->>Queue: jobs <- docID
-            Indexer-->>Handler: true (Accepted)
-        else Queue is full (Capacity == 128)
-            Note over Indexer: Non-blocking default branch
-            Indexer-->>Handler: false (Backpressure exerted)
+    S->>I: Enqueue(id)
+    I->>I: mu.RLock()
+    alt closed
+        I-->>S: false
+    else select { case jobs <- id: ... default: ... }
+        alt buffer has room
+            I->>Q: jobs <- id
+            I-->>S: true
+        else buffer full
+            I-->>S: false  (caller logs a warning; doc stays "pending")
         end
     end
-    Indexer->>Indexer: mu.RUnlock()
+    I->>I: mu.RUnlock()
 
-    Note over Queue,Workers: Concurrent Worker Consumption
-    loop Worker Loop (N goroutines)
-        Workers->>Queue: id := <-jobs
-        Note over Workers: Decoupled Context (30s deadline)
-        Workers->>Workers: ctx, cancel = context.WithTimeout(Background(), 30s)
-        Workers->>Workers: process(ctx, id) (Simulate text analysis / indexing)
-        alt Processing Succeeded
-            Workers->>DB: MarkStatus(ctx, id, StatusReady)
-        else Processing Failed or Timed Out
-            Workers->>DB: MarkStatus(ctx, id, StatusFailed)
+    loop each worker: for id := range jobs
+        W->>Q: id := <-jobs
+        W->>W: ctx, cancel := context.WithTimeout(context.Background(), 30s)
+        W->>W: process(ctx, id)
+        alt ok
+            W->>DB: SetStatus(ctx, id, "ready")
+        else error or timeout
+            W->>DB: SetStatus(ctx, id, "failed")
         end
-        Workers->>Workers: cancel() (Free context resources immediately)
+        W->>W: cancel()
     end
 ```
 
+`SetStatus` runs a single `UPDATE documents SET status=?, updated_at=? WHERE
+id=?` — no read-modify-write — so it can't clobber a `PATCH` that changed the
+title at the same time.
+
+**Recovering stuck documents:** when `Enqueue` returns `false` (full queue) or
+the process dies before a worker runs, a document is left at `status = "pending"`.
+`Service.RequeuePending` runs once at startup, lists everything still `pending`,
+and enqueues it again.
+
 ---
 
-## 3. Graceful Worker Pool Termination
-
-During service shutdown (`SIGINT`/`SIGTERM`), the worker pool guarantees that in-progress tasks finish completely without abrupt termination:
+## 3. Graceful shutdown
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Main as cmd/api (Shutdown)
-    participant Indexer as worker.Indexer
-    participant Queue as jobs chan string
-    participant Workers as Worker Goroutines
+    participant Main as cmd/api (shutdown)
+    participant I as worker.Indexer
+    participant Q as jobs chan
+    participant W as workers
     participant WG as sync.WaitGroup
 
-    Main->>Indexer: Shutdown(shutdownCtx)
-    Indexer->>Indexer: mu.Lock() (Acquire exclusive lock)
-    Indexer->>Indexer: closed = true
-    Indexer->>Queue: close(jobs)
-    Indexer->>Indexer: mu.Unlock()
-
-    Note over Workers: Drain Remaining Queued Tasks
-    Workers->>Queue: Drain remaining buffered jobs until channel exhausted
-    Workers->>WG: wg.Done() (Each worker terminates)
-
-    Indexer->>WG: wg.Wait()
-    alt All workers finished within timeout
-        WG-->>Indexer: Success
-        Indexer-->>Main: nil
-    else shutdownCtx expired (20s)
-        Indexer-->>Main: context.DeadlineExceeded
+    Main->>I: Shutdown(ctx, 20s)
+    I->>I: mu.Lock(); closed = true; close(jobs); mu.Unlock()
+    Note over W: for-range drains whatever is still buffered, then exits
+    W->>WG: wg.Done() (each worker)
+    I->>WG: wg.Wait()
+    alt finished before the deadline
+        I-->>Main: nil
+    else ctx expired
+        I-->>Main: context.DeadlineExceeded
     end
 ```
 
+Closing a channel is the idiomatic "no more values" signal: a `for range` over it
+processes the remaining buffered items and then ends the loop. `Shutdown` is safe
+to call twice (`closed` guard) and from multiple goroutines.
+
 ---
 
-## 4. Key Invariants & Design Principles
+## 4. Why it's built this way
 
-1. **Non-Blocking Backpressure**:
-   The `select` with `default` construct prevents the HTTP request thread from hanging when background workers are overwhelmed.
-2. **Independent Execution Context**:
-   Workers create an independent `context.WithTimeout(context.Background(), 30*time.Second)`. If the originating HTTP client disconnects or aborts, the background worker continues to completion unhindered.
-3. **No Panic on Closed Channel**:
-   The `RWMutex` allows multiple concurrent `Enqueue()` calls (read lock) while reserving exclusive write access for `Shutdown()` (write lock), preventing data races.
+1. **Non-blocking enqueue.** `select` with a `default` case means a full queue
+   returns `false` instead of blocking the HTTP goroutine. Losing a job is
+   acceptable (startup re-queues it); stalling a user's request is not.
+2. **Workers own their context.** Each job gets a fresh
+   `context.WithTimeout(context.Background(), 30s)`, not the request's context —
+   so the work finishes even if the client disconnected right after upload.
+3. **`cancel()` every iteration, no `defer`.** `defer` in a `for` that runs for
+   the life of the process would pile up until the loop ends. Calling `cancel()`
+   at the end of each iteration frees the timer immediately.

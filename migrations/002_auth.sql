@@ -9,12 +9,12 @@
 CREATE TABLE IF NOT EXISTS users (
     id            TEXT    PRIMARY KEY,
     email         TEXT    NOT NULL UNIQUE,   -- Enforces email uniqueness at the database layer
-    password_hash TEXT    NOT NULL,          -- Argon2id / bcrypt hash; plaintext passwords are never stored
+    password_hash TEXT    NOT NULL,          -- bcrypt hash; plaintext passwords are never stored
     created_at    INTEGER NOT NULL           -- Unix epoch seconds, consistent with the documents schema
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-    token      TEXT    PRIMARY KEY,          -- High-entropy 256-bit hexadecimal string transmitted by clients
+    token      TEXT    PRIMARY KEY,          -- SHA-256 hash (hex) of the client's 256-bit session token; raw token lives only in the cookie
     user_id    TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL              -- Expiration timestamp (seconds since Unix epoch)
