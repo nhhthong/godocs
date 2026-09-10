@@ -8,7 +8,7 @@
     <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version"></a>
     <a href="https://github.com/you/godocs/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License: MIT"></a>
     <a href="https://sqlite.org/"><img src="https://img.shields.io/badge/SQLite-Pure_Go_(No_CGO)-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite Pure Go"></a>
-    <a href="#test--verification"><img src="https://img.shields.io/badge/Tests-Passing_(-race)-brightgreen?style=flat-square" alt="Tests Passing"></a>
+    <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
   </p>
 </div>
 
@@ -29,51 +29,43 @@ The frontend is a single HTML file (`web/index.html`) using Tailwind CSS and Luc
 
 <table width="100%">
   <tr>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <h4 align="center">Light Mode Dashboard</h4>
       <a href="resources/4_demo_homepage.png">
         <img src="resources/4_demo_homepage.png" alt="Light Mode Dashboard" style="border-radius: 8px; width: 100%;">
       </a>
-      <p align="center"><sub>Shows summary counters, storage statistics, debounced search, and document management actions.</sub></p>
     </td>
-    <td width="50%" valign="top">
-      <h4 align="center">Dark Mode Experience</h4>
+    <td width="33%" valign="top">
+      <h4 align="center">Dark Mode Dashboard</h4>
       <a href="resources/5_demo_darktheme.png">
         <img src="resources/5_demo_darktheme.png" alt="Dark Mode Dashboard" style="border-radius: 8px; width: 100%;">
       </a>
-      <p align="center"><sub>Theme toggle with system preference detection and localStorage persistence to prevent screen flicker.</sub></p>
     </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <h4 align="center">Upload Modal</h4>
       <a href="resources/6_demo_upload.png">
         <img src="resources/6_demo_upload.png" alt="Upload Modal" style="border-radius: 8px; width: 100%;">
       </a>
-      <p align="center"><sub>Drag-and-drop file upload with client-side size checks before dispatching multipart requests.</sub></p>
     </td>
-    <td width="50%" valign="top">
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
       <h4 align="center">Sign In</h4>
       <a href="resources/1_demo_signin.png">
         <img src="resources/1_demo_signin.png" alt="Sign In View" style="border-radius: 8px; width: 100%;">
       </a>
-      <p align="center"><sub>Authentication screen issuing HttpOnly session cookies for stateful login.</sub></p>
     </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h4 align="center">Sign Up & Password Validation</h4>
+    <td width="33%" valign="top">
+      <h4 align="center">Sign Up</h4>
       <a href="resources/2_demo_signup.png">
         <img src="resources/2_demo_signup.png" alt="Sign Up View" style="border-radius: 8px; width: 100%;">
       </a>
-      <p align="center"><sub>Real-time input checks for password confirmation and required character sets.</sub></p>
     </td>
-    <td width="50%" valign="top">
-      <h4 align="center">Real-Time Strength Meter</h4>
+    <td width="33%" valign="top">
+      <h4 align="center">Password Strength Meter</h4>
       <a href="resources/3_demo_signup_2.png">
         <img src="resources/3_demo_signup_2.png" alt="Password Strength Validation" style="border-radius: 8px; width: 100%;">
       </a>
-      <p align="center"><sub>Visual feedback bar evaluating password complexity on the fly.</sub></p>
     </td>
   </tr>
 </table>
