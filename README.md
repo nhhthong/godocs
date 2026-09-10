@@ -74,6 +74,8 @@ The frontend is a single HTML file (`web/index.html`) using Tailwind CSS and Luc
 
 ## What You Can Learn from This Codebase
 
+> **Deep Dive**: For an exhaustive architectural breakdown of every API flow, middleware pipeline, and background subsystem with Mermaid sequence diagrams, see the [System Execution Guide](resources/FLOW.md).
+
 If you are learning Go, this project provides practical examples of common backend tasks:
 
 ### 1. Goroutines, Channels, and Worker Pools
