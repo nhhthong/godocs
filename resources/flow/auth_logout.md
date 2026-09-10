@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: User Logout (`POST /api/auth/logout`)
 
 This document details the session invalidation and cookie clearing flow in **`godocs`**.

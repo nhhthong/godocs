@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: User Registration (`POST /api/auth/register`)
 
 This document outlines the complete technical execution flow for registering a new user account in **`godocs`**.

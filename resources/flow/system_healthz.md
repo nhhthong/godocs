@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: System Health Check (`GET /healthz`)
 
 This document describes the liveness and database connectivity probe flow in **`godocs`**.

@@ -182,27 +182,27 @@ docker run -p 8080:8080 -e APP_COOKIE_SECURE=false godocs
 Endpoints use JSON for metadata, and multipart forms for file uploads.
 
 ### Auth Endpoints
-| Method | Path | Auth | Description |
-|---|---|:---:|---|
-| `POST` | `/api/auth/register` | No | Register a new user (`email`, `password`) |
-| `POST` | `/api/auth/login` | No | Log in and receive a session cookie |
-| `POST` | `/api/auth/logout` | Cookie | Clear the active session |
-| `GET` | `/api/auth/me` | Cookie | Retrieve the current user's profile |
+| Method | Path | Auth | Description | Flow Guide |
+|---|---|:---:|---|:---:|
+| `POST` | `/api/auth/register` | No | Register a new user (`email`, `password`) | [View Flow](resources/flow/auth_register.md) |
+| `POST` | `/api/auth/login` | No | Log in and receive a session cookie | [View Flow](resources/flow/auth_login.md) |
+| `POST` | `/api/auth/logout` | Cookie | Clear the active session | [View Flow](resources/flow/auth_logout.md) |
+| `GET` | `/api/auth/me` | Cookie | Retrieve the current user's profile | [View Flow](resources/flow/auth_me.md) |
 
 ### Document Endpoints
-| Method | Path | Auth | Description |
-|---|---|:---:|---|
-| `POST` | `/api/documents` | Yes | Upload a document (multipart form with `file`, `title`, `summary`) |
-| `GET` | `/api/documents` | Yes | List documents with pagination (`?q=&limit=&offset=`) |
-| `GET` | `/api/documents/{id}` | Yes | Get a single document record by ID |
-| `GET` | `/api/documents/{id}/file` | Yes | Download or stream the binary file (supports HTTP range requests) |
-| `PATCH` | `/api/documents/{id}` | Yes | Update document title or summary |
-| `DELETE` | `/api/documents/{id}` | Yes | Delete a document and its stored file |
+| Method | Path | Auth | Description | Flow Guide |
+|---|---|:---:|---|:---:|
+| `POST` | `/api/documents` | Yes | Upload a document (multipart form with `file`, `title`, `summary`) | [View Flow](resources/flow/document_upload.md) |
+| `GET` | `/api/documents` | Yes | List documents with pagination (`?q=&limit=&offset=`) | [View Flow](resources/flow/document_list.md) |
+| `GET` | `/api/documents/{id}` | Yes | Get a single document record by ID | [View Flow](resources/flow/document_get.md) |
+| `GET` | `/api/documents/{id}/file` | Yes | Download or stream the binary file (supports HTTP range requests) | [View Flow](resources/flow/document_download.md) |
+| `PATCH` | `/api/documents/{id}` | Yes | Update document title or summary | [View Flow](resources/flow/document_update.md) |
+| `DELETE` | `/api/documents/{id}` | Yes | Delete a document and its stored file | [View Flow](resources/flow/document_delete.md) |
 
 ### Health Check
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/healthz` | Checks database ping and reports server health |
+| Method | Path | Description | Flow Guide |
+|---|---|---|:---:|
+| `GET` | `/healthz` | Checks database ping and reports server health | [View Flow](resources/flow/system_healthz.md) |
 
 ---
 

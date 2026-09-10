@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Current User Profile (`GET /api/auth/me`)
 
 This document describes how the current authenticated user identity is verified and retrieved in **`godocs`**.

@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Document Upload & Async Ingestion (`POST /api/documents`)
 
 This document details the multi-stage execution pipeline for uploading a binary document, performing content-type verification, executing atomic disk persistence with in-flight hashing, persisting database metadata, and dispatching to background workers in **`godocs`**.

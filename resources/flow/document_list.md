@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Document Listing & Search (`GET /api/documents`)
 
 This document details the paginated query and search flow for documents in **`godocs`**.

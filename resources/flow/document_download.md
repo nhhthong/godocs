@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Binary File Download & HTTP Range Streaming (`GET /api/documents/{id}/file`)
 
 This document describes how binary files are securely retrieved, streamed, and partially served via HTTP Range requests in **`godocs`**.

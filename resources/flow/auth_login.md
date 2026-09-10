@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: User Login (`POST /api/auth/login`)
 
 This document outlines the complete technical execution flow for user authentication and session establishment in **`godocs`**.

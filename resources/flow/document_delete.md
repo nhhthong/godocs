@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Document Deletion (`DELETE /api/documents/{id}`)
 
 This document details the multi-resource cleanup and deletion flow in **`godocs`**.

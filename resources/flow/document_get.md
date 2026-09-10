@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Get Document Details (`GET /api/documents/{id}`)
 
 This document explains the document retrieval flow in **`godocs`**, showcasing the Cache-Aside pattern and thread-safe in-memory caching.

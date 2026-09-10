@@ -11,10 +11,10 @@ Click any flow below to view its complete step-by-step sequence diagram, error m
 ### 🔒 Authentication & Identity Flows (`/api/auth/*`)
 | HTTP Method & Path | Flow Specification | Rate Limit | Description |
 |---|---|:---:|---|
-| `POST /api/auth/register` | [**User Registration Flow**](file:///home/vnjdev/projects/godocs/resources/flow/auth_register.md) | 1 req/s (burst 5) | Email normalization, bcrypt hashing (cost 12), 128-bit CSPRNG identifier |
-| `POST /api/auth/login` | [**User Login & Cookie Dispatch**](file:///home/vnjdev/projects/godocs/resources/flow/auth_login.md) | 1 req/s (burst 5) | Timing-safe credential comparison, cryptographic session creation, `HttpOnly` cookie |
-| `POST /api/auth/logout` | [**User Logout & Session Revocation**](file:///home/vnjdev/projects/godocs/resources/flow/auth_logout.md) | Global | Server-side SQLite session deletion, browser cookie purge (`Max-Age=-1`) |
-| `GET /api/auth/me` | [**Current User Profile Verification**](file:///home/vnjdev/projects/godocs/resources/flow/auth_me.md) | Global | Session lookup, expiration verification, caller profile retrieval |
+| [`POST /api/auth/register`](flow/auth_register.md) | [**User Registration Flow**](flow/auth_register.md) | 1 req/s (burst 5) | Email normalization, bcrypt hashing (cost 12), 128-bit CSPRNG identifier |
+| [`POST /api/auth/login`](flow/auth_login.md) | [**User Login & Cookie Dispatch**](flow/auth_login.md) | 1 req/s (burst 5) | Timing-safe credential comparison, cryptographic session creation, `HttpOnly` cookie |
+| [`POST /api/auth/logout`](flow/auth_logout.md) | [**User Logout & Session Revocation**](flow/auth_logout.md) | Global | Server-side SQLite session deletion, browser cookie purge (`Max-Age=-1`) |
+| [`GET /api/auth/me`](flow/auth_me.md) | [**Current User Profile Verification**](flow/auth_me.md) | Global | Session lookup, expiration verification, caller profile retrieval |
 
 ---
 
@@ -23,21 +23,21 @@ Click any flow below to view its complete step-by-step sequence diagram, error m
 
 | HTTP Method & Path | Flow Specification | Cache Action | Description |
 |---|---|:---:|---|
-| `POST /api/documents` | [**Document Upload & Async Ingestion**](file:///home/vnjdev/projects/godocs/resources/flow/document_upload.md) | Write Initial | `MaxBytesReader` size cap, 512-byte magic byte MIME sniffing, atomic staging disk write with in-flight SHA-256, non-blocking worker queue dispatch |
-| `GET /api/documents` | [**Document Listing & Paginated Search**](file:///home/vnjdev/projects/godocs/resources/flow/document_list.md) | None | SQL `LIKE` wildcard escaping (`%`, `_`), total count calculation, chronological pagination |
-| `GET /api/documents/{id}` | [**Document Details (Cache-Aside)**](file:///home/vnjdev/projects/godocs/resources/flow/document_get.md) | Read / Backfill | In-memory concurrent generic TTL cache (`RLock`), SQLite database fallback |
-| `GET /api/documents/{id}/file` | [**Binary File Download & Range Streaming**](file:///home/vnjdev/projects/godocs/resources/flow/document_download.md) | HTTP ETag | Lexical path traversal protection, RFC 5987 Unicode filename encoding, `http.ServeContent` with HTTP `206 Partial Content` Range seeking |
-| `PATCH /api/documents/{id}` | [**Document Metadata Update**](file:///home/vnjdev/projects/godocs/resources/flow/document_update.md) | Invalidate (`Delete`) | Input validation, SQLite update, instantaneous cache eviction under write lock |
-| `DELETE /api/documents/{id}` | [**Document Deletion & Disk Purge**](file:///home/vnjdev/projects/godocs/resources/flow/document_delete.md) | Invalidate (`Delete`) | Database record deletion, cache eviction, physical blob file removal from disk |
+| [`POST /api/documents`](flow/document_upload.md) | [**Document Upload & Async Ingestion**](flow/document_upload.md) | Write Initial | `MaxBytesReader` size cap, 512-byte magic byte MIME sniffing, atomic staging disk write with in-flight SHA-256, non-blocking worker queue dispatch |
+| [`GET /api/documents`](flow/document_list.md) | [**Document Listing & Paginated Search**](flow/document_list.md) | None | SQL `LIKE` wildcard escaping (`%`, `_`), total count calculation, chronological pagination |
+| [`GET /api/documents/{id}`](flow/document_get.md) | [**Document Details (Cache-Aside)**](flow/document_get.md) | Read / Backfill | In-memory concurrent generic TTL cache (`RLock`), SQLite database fallback |
+| [`GET /api/documents/{id}/file`](flow/document_download.md) | [**Binary File Download & Range Streaming**](flow/document_download.md) | HTTP ETag | Lexical path traversal protection, RFC 5987 Unicode filename encoding, `http.ServeContent` with HTTP `206 Partial Content` Range seeking |
+| [`PATCH /api/documents/{id}`](flow/document_update.md) | [**Document Metadata Update**](flow/document_update.md) | Invalidate (`Delete`) | Input validation, SQLite update, instantaneous cache eviction under write lock |
+| [`DELETE /api/documents/{id}`](flow/document_delete.md) | [**Document Deletion & Disk Purge**](flow/document_delete.md) | Invalidate (`Delete`) | Database record deletion, cache eviction, physical blob file removal from disk |
 
 ---
 
 ### ⚙️ System & Infrastructure Flows
 | Target Subsystem | Flow Specification | Lifecycle | Description |
 |---|---|:---:|---|
-| `GET /healthz` | [**Health Check & Database Ping**](file:///home/vnjdev/projects/godocs/resources/flow/system_healthz.md) | Continuous | SQLite context ping, liveness/readiness probe (`200 OK` vs `503 Unavailable`) |
-| **Worker Subsystem** | [**Async Indexing Worker Pool**](file:///home/vnjdev/projects/godocs/resources/flow/background_worker.md) | Background Pool | Bounded channel FIFO queue (buffer 128), worker goroutines, non-blocking backpressure, graceful shutdown drain |
-| **Janitor Routines** | [**Maintenance Janitors & Sweepers**](file:///home/vnjdev/projects/godocs/resources/flow/background_janitors.md) | Periodic Tickers | Hourly SQLite expired session purge and 1-minute in-memory RAM cache eviction |
+| [`GET /healthz`](flow/system_healthz.md) | [**Health Check & Database Ping**](flow/system_healthz.md) | Continuous | SQLite context ping, liveness/readiness probe (`200 OK` vs `503 Unavailable`) |
+| [**Worker Subsystem**](flow/background_worker.md) | [**Async Indexing Worker Pool**](flow/background_worker.md) | Background Pool | Bounded channel FIFO queue (buffer 128), worker goroutines, non-blocking backpressure, graceful shutdown drain |
+| [**Janitor Routines**](flow/background_janitors.md) | [**Maintenance Janitors & Sweepers**](flow/background_janitors.md) | Periodic Tickers | Hourly SQLite expired session purge and 1-minute in-memory RAM cache eviction |
 
 ---
 

@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Background Maintenance Janitors & Sweepers
 
 This document details the periodic background janitor goroutines responsible for automated data cleanup and RAM management in **`godocs`**.

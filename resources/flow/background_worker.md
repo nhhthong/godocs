@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Asynchronous Document Indexing Worker Pool
 
 This document details the concurrent background worker pool subsystem in **`godocs`** implemented in [`internal/worker/indexer.go`](file:///home/vnjdev/projects/godocs/internal/worker/indexer.go).

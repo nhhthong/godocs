@@ -1,3 +1,5 @@
+[← Back to Master Flow Catalog](../FLOW.md)
+
 # Flow: Update Document Metadata (`PATCH /api/documents/{id}`)
 
 This document details the metadata modification flow in **`godocs`**, emphasizing validation and immediate cache invalidation.
