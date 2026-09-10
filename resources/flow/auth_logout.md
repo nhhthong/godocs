@@ -47,7 +47,7 @@ sequenceDiagram
         Note over H: nothing to delete — keep going
     end
 
-    H->>H: Set-Cookie godocs_session=; Max-Age=-1
+    H->>H: Set-Cookie godocs_session=#59; Max-Age=-1
     H-->>Client: 204 No Content
 ```
 

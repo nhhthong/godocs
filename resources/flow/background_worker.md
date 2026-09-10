@@ -45,7 +45,7 @@ sequenceDiagram
             I->>Q: jobs <- id
             I-->>S: true
         else buffer full
-            I-->>S: false  (caller logs a warning; doc stays "pending")
+            I-->>S: false  (caller logs a warning — doc stays "pending")
         end
     end
     I->>I: mu.RUnlock()
@@ -90,7 +90,7 @@ sequenceDiagram
     participant WG as sync.WaitGroup
 
     Main->>I: Shutdown(ctx, 20s)
-    I->>I: mu.Lock(); closed = true; close(jobs); mu.Unlock()
+    I->>I: mu.Lock(), closed = true, close(jobs), mu.Unlock()
     Note over W: for-range drains whatever is still buffered, then exits
     W->>WG: wg.Done() (each worker)
     I->>WG: wg.Wait()

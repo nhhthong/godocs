@@ -112,7 +112,7 @@ sequenceDiagram
 
     S->>Q: Enqueue(doc.ID)
     alt queue full
-        Note over S: log a warning; doc stays "pending"
+        Note over S: log a warning — doc stays "pending"
     end
     S-->>H: *Document
     H-->>Client: 201 Created (+ Location header)
