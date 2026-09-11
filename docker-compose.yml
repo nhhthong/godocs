@@ -1,0 +1,13 @@
+services:
+  godocs:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - godocs-data:/data
+    environment:
+      - APP_COOKIE_SECURE=false
+    restart: unless-stopped
+
+volumes:
+  godocs-data:

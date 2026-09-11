@@ -1,0 +1,11 @@
+# Only COPY what the build needs -> smaller, faster build context.
+.git
+bin/
+out/
+data/
+log/
+*.db
+*.db-shm
+*.db-wal
+*_test.go
+.github/

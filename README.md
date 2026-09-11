@@ -145,28 +145,69 @@ In [`cmd/api/main.go`](cmd/api/main.go), routing uses the standard `http.NewServ
 ## Quick Start
 
 ### Prerequisites
-- **Go 1.22 or higher** ([download here](https://go.dev/dl/))
+- **Docker** ([download here](https://docs.docker.com/get-docker/)) — recommended, no Go toolchain needed
+- or **Go 1.22 or higher** ([download here](https://go.dev/dl/)) to run from source
 
-### Running the App
+### Running with Docker
+
 ```bash
-# 1. Clone the project
 git clone https://github.com/you/godocs.git
 cd godocs
 
-# 2. Start the server
+docker build -t godocs .
+docker run -p 8080:8080 -v godocs-data:/data -e APP_COOKIE_SECURE=false godocs
+```
+
+Open **`http://localhost:8080`**. The image is a multi-stage, distroless build
+(~20MB) running as a non-root user; `-v godocs-data:/data` persists the SQLite
+database and uploaded files (everything else the container writes lives in
+that one directory) across restarts.
+
+`APP_COOKIE_SECURE=false` is only needed for plain `http://localhost` — drop it
+once the app sits behind HTTPS, since session cookies should require TLS in
+production. See [Configuration](#configuration) below for every `APP_*` variable.
+
+### Running from source
+
+For hacking on the code itself:
+
+```bash
 go run ./cmd/api
 ```
 
-Open your browser at **`http://localhost:8080`**. Create a test account, sign in, and upload a few documents to see the background worker and search in action.
+Open **`http://localhost:8080`**. Create a test account, sign in, and upload a
+few documents to see the background worker and search in action.
 
 ### Common Commands
 | Command | Purpose |
 |---|---|
+| `docker build -t godocs .` | Build the container image |
 | `go run ./cmd/api` | Run the application locally |
 | `go test ./...` | Run all unit tests |
 | `go test -race ./...` | Run unit tests with Go's race detector enabled |
 | `make smoke` | Run end-to-end integration tests against a test HTTP server |
 | `make test` | Run tests with race detection and coverage reporting |
+
+### Configuration
+
+Every setting is an environment variable (`internal/config/config.go`), so `-e` on
+`docker run` (or a real orchestrator's env config) is all you need — no config
+file, no flags.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APP_ADDR` | `:8080` | Listen address |
+| `APP_DSN` | `file:godocs.db?...` | SQLite connection string (the Docker image points this at `/data`) |
+| `APP_STORAGE` | `./data/uploads` | Where uploaded files are written |
+| `APP_LOG_DIR` | `log` | Log file directory (`stdout` or empty = console only) |
+| `APP_MAX_UPLOAD_MB` | `25` | Max upload size per file |
+| `APP_WORKERS` | `4` | Background indexing goroutines |
+| `APP_QUEUE_SIZE` | `128` | Indexing job buffer capacity |
+| `APP_CACHE_TTL_SEC` | `60` | Document cache TTL |
+| `APP_SESSION_TTL_HOURS` | `168` (7 days) | Session lifetime |
+| `APP_COOKIE_SECURE` | `true` | Requires HTTPS for the session cookie — set `false` only for plain-HTTP local testing |
+| `APP_CORS_ORIGINS` | *(none)* | Comma-separated allowed origins for cross-origin requests |
+| `APP_RATE_RPS` / `APP_RATE_BURST` | `10` / `20` | Global per-IP rate limit |
 
 ---
 
